@@ -1,6 +1,6 @@
 param(
   [string]$Voice = "zh-CN-YunxiaNeural",
-  [string]$ScriptPath = "$PSScriptRoot\mochi_training_script_zh.txt",
+  [string]$ScriptPath = "$PSScriptRoot\pomao_training_script_zh.txt",
   [string]$OutputDir = "$PSScriptRoot\samples"
 )
 

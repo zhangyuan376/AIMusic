@@ -1,14 +1,14 @@
-# Mochi 角色声线流程
+# Pomao 角色声线流程
 
-目标：不用自己录音，先做一个“原创感”的 Mochi 男声，用来翻唱歌曲片段。
+目标：不用自己录音，先做一个“原创感”的 Pomao 男声，用来翻唱歌曲片段。
 
 推荐路线：
 
 ```text
-AI/TTS 生成 Mochi 声线样本
+AI/TTS 生成 Pomao 声线样本
 -> 用 RVC/Applio 训练角色声线模型
 -> 用 UVR5 分离歌曲人声和伴奏
--> 用 RVC 把原唱人声转换成 Mochi 声线
+-> 用 RVC 把原唱人声转换成 Pomao 声线
 -> 混回伴奏，导出 15-30 秒片段
 ```
 
@@ -50,7 +50,7 @@ python --version
 ffmpeg -version
 ```
 
-## 第二步：生成 Mochi 声线样本
+## 第二步：生成 Pomao 声线样本
 
 安装 Python 依赖：
 
@@ -62,7 +62,7 @@ python -m pip install edge-tts
 然后运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\voice_pipeline\generate_mochi_tts_samples.ps1
+powershell -ExecutionPolicy Bypass -File .\voice_pipeline\generate_pomao_tts_samples.ps1
 ```
 
 脚本会把 demo 声线样本输出到：
@@ -82,7 +82,7 @@ voice_pipeline/samples/
 1. 打开 Applio
 2. 进入训练/Train
 3. 数据集路径选择 `voice_pipeline/samples`
-4. 模型名填 `mochi_male_sad`
+4. 模型名填 `pomao_male_sad`
 5. F0 方法优先选 `rmvpe`
 6. 训练完成后保存 `.pth` 和 `.index`
 
@@ -102,11 +102,11 @@ Windows 一键包一般可以直接解压运行 `go-web.bat`。训练时把 `voi
 2. 用 UVR5 或 RVC WebUI 自带 UVR5 分离：
    - vocals：原唱人声
    - instrumental：伴奏
-3. 在 RVC 推理页面选择 `mochi_male_sad` 模型
-4. 输入原唱人声，转换成 Mochi 声线
+3. 在 RVC 推理页面选择 `pomao_male_sad` 模型
+4. 输入原唱人声，转换成 Pomao 声线
 5. 用 Audacity/Reaper/剪映把转换后人声和伴奏混回去
 
-## Mochi 声线设定
+## Pomao 声线设定
 
 ```text
 年轻男声，偏低但不厚重，轻微沙哑，慵懒克制，悲伤但不夸张。
@@ -117,8 +117,8 @@ Windows 一键包一般可以直接解压运行 `go-web.bat`。训练时把 `voi
 ## 文件说明
 
 - `voice_profile.md`：角色声线设定
-- `mochi_training_script_zh.txt`：用于生成/录制训练样本的文本
-- `generate_mochi_tts_samples.ps1`：用 TTS 批量生成 demo 样本
+- `pomao_training_script_zh.txt`：用于生成/录制训练样本的文本
+- `generate_pomao_tts_samples.ps1`：用 TTS 批量生成 demo 样本
 - `samples/`：训练样本输出目录
 - `input_song/`：放待翻唱歌曲片段
 - `output/`：放换声和混音结果
