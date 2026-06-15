@@ -1,0 +1,33 @@
+# Local tools and downloaded packages
+tools/
+GPT-SoVITS*/
+*.7z
+*.zip
+
+# Generated voice data and model artifacts
+voice_pipeline/samples*/
+voice_pipeline/output/
+voice_pipeline/input_song/
+voice_pipeline/separated/
+voice_pipeline/auditions*/
+logs/
+*.pth
+*.index
+
+# Audio exports and copyrighted source material
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+
+# Python/runtime caches
+__pycache__/
+*.pyc
+.venv/
+env/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
