@@ -20,6 +20,8 @@
     button:disabled { opacity: 0.65; cursor: wait; }
     button.secondary { background: #30384a; }
     button.big { width: 100%; margin: 14px 0 0; padding: 16px; font-size: 18px; }
+    .path-picker { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .path-picker button { margin: 0; white-space: nowrap; background: #30384a; }
     pre { overflow: auto; max-height: 260px; padding: 12px; border-radius: 10px; background: #0b0e14; border: 1px solid #2b3140; white-space: pre-wrap; }
     details { margin-top: 14px; padding: 12px; border: 1px solid #30384a; border-radius: 12px; background: #121722; }
     summary { cursor: pointer; color: #b9c6e4; font-weight: 700; }
@@ -37,13 +39,13 @@
     .spinner { width: 15px; height: 15px; border: 2px solid #53617c; border-top-color: #91adff; border-radius: 50%; animation: spin 0.8s linear infinite; }
     .progress-box { margin-top: 12px; padding: 12px; border-radius: 12px; background: #101520; border: 1px solid #30384a; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    @media (max-width: 860px) { .steps, .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 860px) { .steps, .grid, .path-picker { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
     <h1>AI Singing Video</h1>
-    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 选音乐自动翻唱。</div>
+    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 人声分离 -> 生成翻唱。</div>
   </header>
 
   <main>
@@ -51,8 +53,8 @@
       <div class="steps">
         <div class="step"><b>1. 设计声线</b><span>输入角色风格，自动生成试听样本。</span></div>
         <div class="step"><b>2. 试听选择</b><span>听完保存喜欢的声线。</span></div>
-        <div class="step"><b>3. 选择音乐</b><span>系统自动人声分离。</span></div>
-        <div class="step"><b>4. 生成翻唱</b><span>以后可直接复用历史声线。</span></div>
+        <div class="step"><b>3. 训练模型</b><span>历史声线训练后自动绑定。</span></div>
+        <div class="step"><b>4. 分离/生成</b><span>先分离人声，再生成翻唱视频。</span></div>
       </div>
 
       <h2>第 1 步：描述你想要的角色声线</h2>
@@ -61,7 +63,10 @@
       <label>角色/声线风格</label>
       <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
       <label>角色图片路径</label>
-      <input id="voice_character_image">
+      <div class="path-picker">
+        <input id="voice_character_image" placeholder="点击右侧选择图片">
+        <button type="button" onclick="pickFile('voice_character_image', 'image')">选择图片</button>
+      </div>
       <button id="audition_button" class="big" onclick="generateAuditions()">生成试听声线</button>
       <div id="audition_status" class="muted" style="margin-top:10px;">还没有生成试听。</div>
       <div class="muted">提示：生成试听需要 Edge TTS，通常会联网；只想测试流程可在高级区勾选 dry-run。</div>
@@ -94,7 +99,10 @@
     <section>
       <h2>第 4 步：单独做人声分离</h2>
       <label>音乐文件路径</label>
-      <input id="song_path" placeholder="例如 D:\music\song.wav">
+      <div class="path-picker">
+        <input id="song_path" placeholder="点击右侧选择音乐文件">
+        <button type="button" onclick="pickFile('song_path', 'audio')">选择音乐</button>
+      </div>
       <div class="grid">
         <div><label>从第几秒开始</label><input id="start_seconds" type="number" value="0"></div>
         <div><label>截取多少秒</label><input id="duration_seconds" type="number" value="30"></div>
@@ -124,7 +132,10 @@
         <label><input id="no_resume" type="checkbox" checked style="width:auto"> 从第一步重跑</label>
         <label>当前 Job</label>
         <select id="job_select"></select>
-        <input id="job_path">
+        <div class="path-picker">
+          <input id="job_path">
+          <button type="button" onclick="pickFile('job_path', 'job')">选择 Job</button>
+        </div>
         <h3>Runtime</h3><pre id="runtime"></pre>
         <h3>State</h3><pre id="state"></pre>
         <h3>Logs</h3><pre id="logs"></pre>
@@ -161,6 +172,15 @@
 
     function post(path, payload) {
       return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    }
+
+    async function pickFile(inputId, kind) {
+      const input = $(inputId);
+      const data = await api(`/api/pick-file?kind=${encodeURIComponent(kind)}&initial=${encodeURIComponent(input.value)}`);
+      if (!data.path) return;
+      input.value = data.path;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
     function status(text, bad = false) {

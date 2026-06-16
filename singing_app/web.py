@@ -4,10 +4,12 @@ import json
 import os
 import re
 import threading
+import tkinter as tk
 import webbrowser
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from tkinter import filedialog
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -87,6 +89,12 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/open-output":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json(open_output_folder(job_path))
+            elif parsed.path == "/api/pick-file":
+                query = parse_qs(parsed.query)
+                self._send_json(pick_file(
+                    kind=query.get("kind", ["any"])[0],
+                    initial=query.get("initial", [""])[0],
+                ))
             elif parsed.path.startswith("/api/"):
                 self._send_json({"error": f"Unknown API endpoint: {parsed.path}"}, status=HTTPStatus.NOT_FOUND)
             else:
@@ -354,6 +362,45 @@ def open_output_folder(job_path: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     os.startfile(str(output_dir))
     return {"opened": str(output_dir)}
+
+
+def pick_file(kind: str = "any", initial: str = "") -> dict[str, str]:
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        initial_path = Path(initial) if initial else None
+        initial_dir = str(initial_path.parent if initial_path and initial_path.exists() else RUNTIME.app_root)
+        filetypes = _file_dialog_types(kind)
+        path = filedialog.askopenfilename(
+            title=_file_dialog_title(kind),
+            initialdir=initial_dir,
+            filetypes=filetypes,
+            parent=root,
+        )
+        return {"path": str(path) if path else ""}
+    finally:
+        root.destroy()
+
+
+def _file_dialog_title(kind: str) -> str:
+    if kind == "image":
+        return "选择角色图片"
+    if kind == "audio":
+        return "选择音乐文件"
+    if kind == "job":
+        return "选择 Job JSON"
+    return "选择文件"
+
+
+def _file_dialog_types(kind: str) -> list[tuple[str, str]]:
+    if kind == "image":
+        return [("Image files", "*.png *.jpg *.jpeg *.webp *.bmp"), ("All files", "*.*")]
+    if kind == "audio":
+        return [("Audio files", "*.wav *.mp3 *.flac *.m4a *.aac *.ogg"), ("All files", "*.*")]
+    if kind == "job":
+        return [("Job JSON", "*.json"), ("All files", "*.*")]
+    return [("All files", "*.*")]
 
 
 def write_video_job(payload: dict[str, Any]) -> Path:
