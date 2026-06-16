@@ -71,13 +71,7 @@
       <h2>第 2 步：试听并保存喜欢的声线</h2>
       <button class="secondary" onclick="loadSamples()">刷新试听列表</button>
       <div id="samples" class="muted">生成后这里会出现可播放的试听样本。</div>
-
-      <details>
-        <summary>如果已经训练好模型，在这里绑定 .pth 和 .index</summary>
-        <label>模型 .pth</label><input id="selected_model_path">
-        <label>索引 .index</label><input id="selected_index_path">
-        <div class="muted">没有模型也可以先保存试听，但暂时不能用于翻唱。训练/导入模型后再绑定即可。</div>
-      </details>
+      <div class="muted">这里只负责试听和选择。保存后到第 3 步训练模型，训练完成后才能翻唱。</div>
     </section>
 
     <section>
@@ -87,6 +81,7 @@
       <select id="voice_select"></select>
       <div id="voice_hint" class="muted"></div>
       <div id="train_voice_panel">
+        <div class="muted">如果历史声线显示“未绑定模型”，点下面的训练按钮。训练完成后点击“绑定训练结果”，这条声线以后就能直接翻唱。</div>
         <div class="grid">
           <div><label>训练轮数</label><input id="voice_train_epochs" type="number" value="5"></div>
           <div><label>模型名</label><input id="voice_train_model_name" placeholder="自动生成即可"></div>
@@ -317,9 +312,7 @@
           name,
           description: $("voice_description").value,
           sample_path: sample.path,
-          sample_dir: lastSampleDir,
-          model_path: $("selected_model_path").value,
-          index_path: $("selected_index_path").value
+          sample_dir: lastSampleDir
         });
         document.querySelectorAll(".sample").forEach(item => item.classList.remove("selected"));
         card.classList.add("selected");
