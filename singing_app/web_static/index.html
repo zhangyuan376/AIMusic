@@ -119,7 +119,16 @@
 
     async function api(path, options = {}) {
       const res = await fetch(path, options);
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        const hint = text.trim().startsWith("<")
+          ? "接口返回了网页而不是数据，请刷新页面或重启 run_singing_web.bat。"
+          : text.slice(0, 180);
+        throw new Error(hint);
+      }
       if (!res.ok || data.error) throw new Error(data.error || res.statusText);
       return data;
     }

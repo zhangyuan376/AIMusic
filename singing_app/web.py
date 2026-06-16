@@ -81,6 +81,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/open-output":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json(open_output_folder(job_path))
+            elif parsed.path.startswith("/api/"):
+                self._send_json({"error": f"Unknown API endpoint: {parsed.path}"}, status=HTTPStatus.NOT_FOUND)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except Exception as exc:
@@ -108,6 +110,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                     resume=not bool(payload.get("no_resume", False)),
                 )
                 self._send_json(result)
+            elif parsed.path.startswith("/api/"):
+                self._send_json({"error": f"Unknown API endpoint: {parsed.path}"}, status=HTTPStatus.NOT_FOUND)
             else:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except Exception as exc:
@@ -137,6 +141,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
         data = path.read_bytes()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
+        if path.name == "index.html":
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
