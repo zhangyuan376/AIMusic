@@ -80,6 +80,15 @@
       <label>历史声线</label>
       <select id="voice_select"></select>
       <div id="voice_hint" class="muted"></div>
+      <div id="train_voice_panel">
+        <div class="grid">
+          <div><label>训练轮数</label><input id="voice_train_epochs" type="number" value="5"></div>
+          <div><label>模型名</label><input id="voice_train_model_name" placeholder="自动生成即可"></div>
+        </div>
+        <button onclick="trainSelectedVoice()">训练这个声线模型</button>
+        <button class="secondary" onclick="bindSelectedVoice()">绑定训练结果</button>
+        <div id="train_voice_status" class="muted">如果声线未绑定模型，先训练，训练完成后再绑定结果。</div>
+      </div>
 
       <label>音乐文件路径</label>
       <input id="song_path" placeholder="例如 D:\music\song.wav">
@@ -203,11 +212,16 @@
       const voice = voices.find(v => v.id === $("voice_select").value);
       if (!voice) {
         $("voice_hint").textContent = "暂无历史声线。";
+        $("voice_train_model_name").value = "";
         return;
       }
       $("voice_hint").textContent = voice.ready
         ? `可用于翻唱：${voice.description || voice.name}`
-        : "这个声线只有试听样本，还没有绑定 .pth/.index，暂时不能翻唱。";
+        : "这个声线只有试听样本，还没有绑定 .pth/.index。请先训练，训练完成后绑定结果。";
+      $("voice_train_model_name").value = voice.training_model_name || `${voice.id}_voice`;
+      $("train_voice_status").textContent = voice.training_job_path
+        ? `最近训练任务：${voice.training_job_path}`
+        : "如果声线未绑定模型，先训练，训练完成后再绑定结果。";
     }
 
     async function generateAuditions() {
@@ -294,6 +308,45 @@
         await runJob(true);
       } catch (err) {
         status(err.message, true);
+        alert(err.message);
+      }
+    }
+
+    async function trainSelectedVoice() {
+      try {
+        const voice = voices.find(v => v.id === $("voice_select").value);
+        if (!voice) throw new Error("请先选择一个历史声线。");
+        if (!voice.sample_dir) throw new Error("这个声线没有试听样本目录，请先生成试听并保存声线。");
+        $("train_voice_status").textContent = "正在创建训练任务。";
+        const result = await post("/api/create-training-from-voice", {
+          voice_id: voice.id,
+          model_name: $("voice_train_model_name").value,
+          epochs: $("voice_train_epochs").value
+        });
+        setJob(result.job_path);
+        await loadVoices();
+        await runJob(true);
+        $("train_voice_status").textContent = "训练任务已启动。训练很慢，完成后点击“绑定训练结果”。";
+      } catch (err) {
+        $("train_voice_status").textContent = err.message;
+        $("train_voice_status").className = "bad";
+        alert(err.message);
+      }
+    }
+
+    async function bindSelectedVoice() {
+      try {
+        const voice = voices.find(v => v.id === $("voice_select").value);
+        if (!voice) throw new Error("请先选择一个历史声线。");
+        const saved = await post("/api/bind-trained-voice", { voice_id: voice.id });
+        await loadVoices();
+        $("voice_select").value = saved.voice.id;
+        updateVoiceHint();
+        $("train_voice_status").className = "muted";
+        $("train_voice_status").textContent = "模型已绑定，这个声线现在可以翻唱。";
+      } catch (err) {
+        $("train_voice_status").textContent = err.message;
+        $("train_voice_status").className = "bad";
         alert(err.message);
       }
     }

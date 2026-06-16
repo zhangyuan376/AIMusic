@@ -98,6 +98,10 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 self._send_json({"job_path": str(write_voice_sample_job(payload))})
             elif parsed.path == "/api/create-training-job":
                 self._send_json({"job_path": str(write_training_job(payload))})
+            elif parsed.path == "/api/create-training-from-voice":
+                self._send_json({"job_path": str(write_training_job_from_voice(payload))})
+            elif parsed.path == "/api/bind-trained-voice":
+                self._send_json({"voice": bind_trained_voice(payload)})
             elif parsed.path == "/api/save-voice":
                 self._send_json({"voice": save_voice_selection(payload)})
             elif parsed.path == "/api/run-job":
@@ -222,12 +226,52 @@ def save_voice_selection(payload: dict[str, Any]) -> dict[str, Any]:
     return voice
 
 
+def update_voice(voice: dict[str, Any]) -> dict[str, Any]:
+    voices = [item for item in load_voice_library() if item.get("id") != voice.get("id")]
+    voices.append(voice)
+    _write_json(VOICE_LIBRARY_PATH, {"voices": voices})
+    return voice
+
+
 def find_voice(voice_id: str) -> dict[str, Any]:
     ensure_default_voice()
     for voice in load_voice_library():
         if voice.get("id") == voice_id:
             return voice
     raise FileNotFoundError(f"Voice not found: {voice_id}")
+
+
+def write_training_job_from_voice(payload: dict[str, Any]) -> Path:
+    voice = find_voice(_required_text(payload, "voice_id"))
+    sample_dir = _required_existing_path(str(voice.get("sample_dir", "")), "voice sample_dir")
+    model_name = str(payload.get("model_name", f"{voice['id']}_voice")).strip() or f"{voice['id']}_voice"
+    epochs = int(payload.get("epochs", 5))
+    job_path = write_training_job({
+        "character_name": voice.get("name", voice["id"]),
+        "sample_dir": str(sample_dir),
+        "model_name": model_name,
+        "epochs": epochs,
+    })
+    voice["training_job_path"] = str(job_path)
+    voice["training_model_name"] = model_name
+    update_voice(voice)
+    return job_path
+
+
+def bind_trained_voice(payload: dict[str, Any]) -> dict[str, Any]:
+    voice = find_voice(_required_text(payload, "voice_id"))
+    job_path = Path(str(payload.get("job_path") or voice.get("training_job_path", "")))
+    if not job_path.exists():
+        raise FileNotFoundError(f"Training job not found: {job_path}")
+    status = job_status(job_path, {"running": False, "current_job": "", "messages": []})
+    artifacts = status.get("artifacts") or {}
+    model_path = _required_existing_path(str(artifacts.get("trained_model_path", "")), "trained model")
+    index_path = _required_existing_path(str(artifacts.get("trained_index_path", "")), "trained index")
+    voice["model_path"] = str(model_path)
+    voice["index_path"] = str(index_path)
+    voice["ready"] = True
+    voice["training_job_path"] = str(job_path)
+    return update_voice(voice)
 
 
 def list_voice_samples(job_path: Path) -> list[dict[str, str]]:
