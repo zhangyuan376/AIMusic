@@ -28,6 +28,7 @@
     .step b { display: block; margin-bottom: 5px; color: #91adff; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .sample { padding: 12px; margin: 10px 0; background: #101520; border: 1px solid #30384a; border-radius: 12px; }
+    .sample.selected { border-color: #74d99f; box-shadow: 0 0 0 1px #74d99f inset; }
     .sample audio { width: 100%; margin-top: 8px; }
     .muted { color: #98a6c5; }
     .ok { color: #74d99f; }
@@ -297,28 +298,46 @@
         div.innerHTML = `<b>${sample.name}</b><audio controls src="${sample.url}"></audio>`;
         const button = document.createElement("button");
         button.textContent = "选择这个声线";
-        button.onclick = () => saveVoice(sample);
+        button.onclick = () => saveVoice(sample, button, div);
         div.appendChild(button);
         root.appendChild(div);
       }
     }
 
-    async function saveVoice(sample) {
+    async function saveVoice(sample, button, card) {
       selectedSample = sample;
       const name = prompt("给这个声线起个名字", `${$("voice_character_name").value} 声线`);
       if (!name) return;
-      const saved = await post("/api/save-voice", {
-        name,
-        description: $("voice_description").value,
-        sample_path: sample.path,
-        sample_dir: lastSampleDir,
-        model_path: $("selected_model_path").value,
-        index_path: $("selected_index_path").value
-      });
-      status(saved.voice.ready ? "声线已保存，可用于翻唱。" : "声线已保存到历史，但还没绑定模型，暂时不能翻唱。");
-      await loadVoices();
-      $("voice_select").value = saved.voice.id;
-      updateVoiceHint();
+      try {
+        button.disabled = true;
+        button.innerHTML = `<span class="busy"><span class="spinner"></span>正在保存...</span>`;
+        auditionStatus(`正在保存“${name}”到历史声线。`);
+        setProgress(`正在保存选择的声线：${sample.name}`, true);
+        const saved = await post("/api/save-voice", {
+          name,
+          description: $("voice_description").value,
+          sample_path: sample.path,
+          sample_dir: lastSampleDir,
+          model_path: $("selected_model_path").value,
+          index_path: $("selected_index_path").value
+        });
+        document.querySelectorAll(".sample").forEach(item => item.classList.remove("selected"));
+        card.classList.add("selected");
+        button.textContent = "已选择并保存";
+        auditionStatus(saved.voice.ready ? "已保存到历史声线，可以直接翻唱。" : "已保存到历史声线。下一步请训练这个声线模型。");
+        status(saved.voice.ready ? "声线已保存，可用于翻唱。" : "声线已保存到历史，但还没绑定模型，请继续训练。");
+        setProgress(`已保存声线：${saved.voice.name}`, false);
+        await loadVoices();
+        $("voice_select").value = saved.voice.id;
+        updateVoiceHint();
+        $("voice_select").scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = "选择这个声线";
+        auditionStatus(err.message, true);
+        setProgress(err.message, false, true);
+        alert(err.message);
+      }
     }
 
     async function makeCover() {
