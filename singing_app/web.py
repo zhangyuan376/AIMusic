@@ -43,12 +43,18 @@ class WebJobManager:
             return {"running": running, "current_job": self.current_job, "messages": list(self.messages[-100:])}
 
     def _run(self, job_path: Path, dry_run: bool, resume: bool) -> None:
+        extra_messages: list[str] = []
         try:
             HarnessRunner.from_file(job_path, dry_run=dry_run).run(resume=resume)
+            if not dry_run:
+                auto_bind_message = auto_bind_trained_voice(job_path)
+                if auto_bind_message:
+                    extra_messages.append(auto_bind_message)
             message = "Job finished."
         except Exception as exc:
             message = f"Job failed: {exc}"
         with self.lock:
+            self.messages.extend(extra_messages)
             self.messages.append(message)
 
 
@@ -251,11 +257,24 @@ def write_training_job_from_voice(payload: dict[str, Any]) -> Path:
         "sample_dir": str(sample_dir),
         "model_name": model_name,
         "epochs": epochs,
+        "voice_id": voice["id"],
     })
     voice["training_job_path"] = str(job_path)
     voice["training_model_name"] = model_name
     update_voice(voice)
     return job_path
+
+
+def auto_bind_trained_voice(job_path: Path) -> str:
+    try:
+        job = _read_json(job_path)
+        voice_id = str((job.get("inputs", {}).get("voice", {}) or {}).get("voice_id", "")).strip()
+        if not voice_id:
+            return ""
+        voice = bind_trained_voice({"voice_id": voice_id, "job_path": str(job_path)})
+        return f"Auto-bound trained model to voice: {voice.get('name', voice_id)}"
+    except Exception as exc:
+        return f"Auto-bind trained voice failed: {exc}"
 
 
 def bind_trained_voice(payload: dict[str, Any]) -> dict[str, Any]:
@@ -399,11 +418,15 @@ def write_training_job(payload: dict[str, Any]) -> Path:
     job_id = f"{character_id}_train_{_slugify(model_name)}"
     project_dir = RUNTIME.projects_root / job_id
     job_path = _job_path(job_id)
+    voice_inputs = {"model_name": model_name, "dataset_path": str(sample_dir), "epochs": epochs}
+    voice_id = str(payload.get("voice_id", "")).strip()
+    if voice_id:
+        voice_inputs["voice_id"] = voice_id
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
         "steps": ["check_runtime", "train_voice_model", "export_result"],
-        "inputs": {"voice": {"model_name": model_name, "dataset_path": str(sample_dir), "epochs": epochs}},
+        "inputs": {"voice": voice_inputs},
         "settings": {},
     })
     return job_path

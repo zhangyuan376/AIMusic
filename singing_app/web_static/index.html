@@ -81,14 +81,13 @@
       <select id="voice_select"></select>
       <div id="voice_hint" class="muted"></div>
       <div id="train_voice_panel">
-        <div class="muted">如果历史声线显示“未绑定模型”，点下面的训练按钮。训练完成后点击“绑定训练结果”，这条声线以后就能直接翻唱。</div>
+        <div class="muted">如果历史声线显示“未绑定模型”，点下面的训练按钮。训练完成后系统会自动绑定到这条声线，以后就能直接翻唱。</div>
         <div class="grid">
           <div><label>训练轮数</label><input id="voice_train_epochs" type="number" value="5"></div>
           <div><label>模型名</label><input id="voice_train_model_name" placeholder="自动生成即可"></div>
         </div>
         <button id="train_voice_button" onclick="trainSelectedVoice()">训练这个声线模型</button>
-        <button class="secondary" onclick="bindSelectedVoice()">绑定训练结果</button>
-        <div id="train_voice_status" class="muted">如果声线未绑定模型，先训练，训练完成后再绑定结果。</div>
+        <div id="train_voice_status" class="muted">如果声线未绑定模型，点训练即可。训练结果会自动绑定到当前声线。</div>
       </div>
 
       <label>音乐文件路径</label>
@@ -130,6 +129,7 @@
     let voices = [];
     let progressTimer = null;
     let activeTask = "";
+    let trainingVoiceId = "";
 
     async function api(path, options = {}) {
       const res = await fetch(path, options);
@@ -221,8 +221,9 @@
       }
     }
 
-    async function loadVoices() {
+    async function loadVoices(preferredVoiceId = "") {
       const data = await api("/api/voices");
+      const previous = preferredVoiceId || $("voice_select").value;
       voices = data.voices;
       const select = $("voice_select");
       select.innerHTML = "";
@@ -231,6 +232,9 @@
         option.value = voice.id;
         option.textContent = `${voice.name}${voice.ready ? "" : "（未绑定模型）"}`;
         select.appendChild(option);
+      }
+      if (previous && voices.some(voice => voice.id === previous)) {
+        select.value = previous;
       }
       updateVoiceHint();
     }
@@ -248,7 +252,7 @@
       $("voice_train_model_name").value = voice.training_model_name || `${voice.id}_voice`;
       $("train_voice_status").textContent = voice.training_job_path
         ? `最近训练任务：${voice.training_job_path}`
-        : "如果声线未绑定模型，先训练，训练完成后再绑定结果。";
+        : "如果声线未绑定模型，点训练即可。训练结果会自动绑定到当前声线。";
     }
 
     async function generateAuditions() {
@@ -360,6 +364,7 @@
         const voice = voices.find(v => v.id === $("voice_select").value);
         if (!voice) throw new Error("请先选择一个历史声线。");
         if (!voice.sample_dir) throw new Error("这个声线没有试听样本目录，请先生成试听并保存声线。");
+        trainingVoiceId = voice.id;
         setButtonBusy("train_voice_button", true, "正在训练...", "训练这个声线模型");
         setProgress("正在创建训练任务...", true);
         $("train_voice_status").textContent = "正在创建训练任务。";
@@ -369,10 +374,10 @@
           epochs: $("voice_train_epochs").value
         });
         setJob(result.job_path);
-        await loadVoices();
+        await loadVoices(trainingVoiceId);
         startProgressPolling("training");
         await runJob(true);
-        $("train_voice_status").textContent = "训练任务已启动。训练很慢，完成后点击“绑定训练结果”。";
+        $("train_voice_status").textContent = "训练任务已启动。训练很慢，完成后会自动绑定到当前声线。";
       } catch (err) {
         stopProgressPolling();
         setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
@@ -383,20 +388,21 @@
       }
     }
 
-    async function bindSelectedVoice() {
+    async function bindVoiceById(voiceId) {
       try {
-        const voice = voices.find(v => v.id === $("voice_select").value);
-        if (!voice) throw new Error("请先选择一个历史声线。");
-        const saved = await post("/api/bind-trained-voice", { voice_id: voice.id });
-        await loadVoices();
+        const saved = await post("/api/bind-trained-voice", { voice_id: voiceId });
+        await loadVoices(saved.voice.id);
         $("voice_select").value = saved.voice.id;
         updateVoiceHint();
         $("train_voice_status").className = "muted";
         $("train_voice_status").textContent = "模型已绑定，这个声线现在可以翻唱。";
+        setProgress("训练完成并已自动绑定模型，可以开始翻唱。", false);
+        return true;
       } catch (err) {
-        $("train_voice_status").textContent = err.message;
+        $("train_voice_status").textContent = `训练任务已结束，但自动绑定失败：${err.message}`;
         $("train_voice_status").className = "bad";
-        alert(err.message);
+        setProgress(`训练任务已结束，但自动绑定失败：${err.message}`, false, true);
+        return false;
       }
     }
 
@@ -435,7 +441,10 @@
           }
           if (activeTask === "training") {
             setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
-            $("train_voice_status").textContent = "训练任务已完成。请点击“绑定训练结果”。";
+            $("train_voice_status").textContent = "训练任务已完成，正在自动绑定模型。";
+            if (trainingVoiceId) {
+              bindVoiceById(trainingVoiceId);
+            }
           }
           stopProgressPolling();
         }
