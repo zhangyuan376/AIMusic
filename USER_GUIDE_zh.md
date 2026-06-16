@@ -8,6 +8,18 @@
 run_singing_app.bat
 ```
 
+如果想用浏览器调试版，运行：
+
+```bat
+run_singing_web.bat
+```
+
+浏览器版默认打开：
+
+```text
+http://127.0.0.1:7860
+```
+
 如果打不开，先运行：
 
 ```bat

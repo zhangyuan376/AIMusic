@@ -28,6 +28,22 @@ Development checkout:
 d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main ui
 ```
 
+## Launch Web UI
+
+Installed app:
+
+```powershell
+run_singing_web.bat
+```
+
+Development checkout:
+
+```powershell
+d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
+```
+
+The web UI opens `http://127.0.0.1:7860` and exposes the same harness flow through local JSON APIs. It is intended for easier debugging in a browser.
+
 The first UI is a harness control panel. It can:
 
 - create a singing video job from a simple form

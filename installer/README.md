@@ -22,6 +22,7 @@ Expected installed layout:
 ```text
 AISingingVideo/
   AISingingVideo.exe
+  run_singing_web.bat
   check_singing_app_runtime.bat
   tools/
     ApplioV3.6.2/
@@ -43,6 +44,8 @@ AISingingVideo/
 ```
 
 The frozen exe resolves the app root from its own folder, so `tools/`, `voice_pipeline/`, and `singing_app/` should be placed beside the exe.
+
+The browser-based UI is launched with `run_singing_web.bat` and opens `http://127.0.0.1:7860`.
 
 ## Runtime Check
 

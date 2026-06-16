@@ -12,6 +12,7 @@ $Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
 $required = @()
 $required += $Manifest.app.exe
 $required += "run_singing_app.bat"
+$required += "run_singing_web.bat"
 $required += "check_singing_app_runtime.bat"
 $required += "USER_GUIDE_zh.md"
 $required += $Manifest.default_assets

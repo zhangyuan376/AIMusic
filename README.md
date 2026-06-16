@@ -32,6 +32,7 @@ voice_pipeline/
 singing_app/
   main.py                            harness CLI
   ui.py                              tkinter 桌面 UI
+  web.py                             本地浏览器 Web UI/API
   harness/                           可恢复工作流引擎
   adapters/                          Applio/Demucs/FFmpeg/Edge TTS 适配器
   jobs/                              示例 job
@@ -69,6 +70,14 @@ tools\ApplioV3.6.2\env\python.exe -m singing_app.main ui
 ```bat
 run_singing_app.bat
 ```
+
+浏览器调试版：
+
+```bat
+run_singing_web.bat
+```
+
+默认打开 `http://127.0.0.1:7860`。
 
 运行时检查：
 

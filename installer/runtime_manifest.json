@@ -2,7 +2,8 @@
   "app": {
     "exe": "AISingingVideo.exe",
     "entry": "singing_app.main",
-    "ui_command": "python -m singing_app.main ui"
+    "ui_command": "python -m singing_app.main ui",
+    "web_command": "python -m singing_app.main web"
   },
   "runtime": {
     "applio_root": "tools/ApplioV3.6.2",
@@ -27,6 +28,11 @@
   "default_jobs": [
     "singing_app/jobs/pomao_demo_job.json",
     "singing_app/jobs/new_character_voice_job.json"
+  ],
+  "launchers": [
+    "run_singing_app.bat",
+    "run_singing_web.bat",
+    "check_singing_app_runtime.bat"
   ],
   "excluded_from_installer": [
     "voice_pipeline/output",

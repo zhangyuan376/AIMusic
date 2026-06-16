@@ -9,7 +9,7 @@ $Out = New-Item -ItemType Directory -Force -Path $OutputDir
 
 Write-Host "Preparing offline staging folder at $($Out.FullName)"
 
-$cleanItems = @("AISingingVideo.exe", "singing_app", "voice_pipeline", "tools", "run_singing_app.bat", "check_singing_app_runtime.bat")
+$cleanItems = @("AISingingVideo.exe", "singing_app", "voice_pipeline", "tools", "run_singing_app.bat", "run_singing_web.bat", "check_singing_app_runtime.bat")
 foreach ($item in $cleanItems) {
   $target = Join-Path $Out.FullName $item
   if (Test-Path $target) {
@@ -39,6 +39,7 @@ Get-ChildItem $appSource -Recurse -File | Where-Object {
 New-Item -ItemType Directory -Force -Path (Join-Path $appTarget "projects") | Out-Null
 
 Copy-Item (Join-Path $Root "run_singing_app.bat") (Join-Path $Out.FullName "run_singing_app.bat") -Force
+Copy-Item (Join-Path $Root "run_singing_web.bat") (Join-Path $Out.FullName "run_singing_web.bat") -Force
 Copy-Item (Join-Path $Root "check_singing_app_runtime.bat") (Join-Path $Out.FullName "check_singing_app_runtime.bat") -Force
 Copy-Item (Join-Path $Root "USER_GUIDE_zh.md") (Join-Path $Out.FullName "USER_GUIDE_zh.md") -Force
 

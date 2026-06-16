@@ -35,6 +35,12 @@ def launch_ui(args: argparse.Namespace) -> None:
     ui_main()
 
 
+def launch_web(args: argparse.Namespace) -> None:
+    from singing_app.web import run_web_server
+
+    run_web_server(host=args.host, port=args.port, open_browser=not args.no_open)
+
+
 def check_runtime(args: argparse.Namespace) -> None:
     checks = checks_as_dicts()
     if args.json:
@@ -66,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     ui_parser = subparsers.add_parser("ui", help="Launch the desktop harness UI")
     ui_parser.set_defaults(func=launch_ui)
+
+    web_parser = subparsers.add_parser("web", help="Launch the local browser web UI")
+    web_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
+    web_parser.add_argument("--port", type=int, default=7860, help="Port to bind")
+    web_parser.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    web_parser.set_defaults(func=launch_web)
 
     runtime_parser = subparsers.add_parser("check-runtime", help="Check local app runtime")
     runtime_parser.add_argument("--json", action="store_true", help="Print checks as JSON")

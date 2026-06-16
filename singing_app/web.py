@@ -1,0 +1,319 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import threading
+import webbrowser
+from http import HTTPStatus
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+from singing_app.config import RUNTIME
+from singing_app.harness.runner import HarnessRunner
+from singing_app.runtime_check import checks_as_dicts
+
+
+STATIC_ROOT = Path(__file__).resolve().parent / "web_static"
+
+
+class WebJobManager:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.running_thread: threading.Thread | None = None
+        self.current_job = ""
+        self.messages: list[str] = []
+
+    def start(self, job_path: Path, dry_run: bool, resume: bool) -> dict[str, str]:
+        with self.lock:
+            if self.running_thread and self.running_thread.is_alive():
+                return {"status": "busy", "message": f"Job already running: {self.current_job}"}
+            self.current_job = str(job_path)
+            self.messages.append(f"Starting job: {job_path}")
+            self.running_thread = threading.Thread(target=self._run, args=(job_path, dry_run, resume), daemon=True)
+            self.running_thread.start()
+        return {"status": "started", "message": f"Started job: {job_path}"}
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            running = bool(self.running_thread and self.running_thread.is_alive())
+            return {"running": running, "current_job": self.current_job, "messages": list(self.messages[-100:])}
+
+    def _run(self, job_path: Path, dry_run: bool, resume: bool) -> None:
+        try:
+            HarnessRunner.from_file(job_path, dry_run=dry_run).run(resume=resume)
+            message = "Job finished."
+        except Exception as exc:
+            message = f"Job failed: {exc}"
+        with self.lock:
+            self.messages.append(message)
+
+
+class SingingWebHandler(SimpleHTTPRequestHandler):
+    manager: WebJobManager
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path == "/":
+                self._send_file(STATIC_ROOT / "index.html", "text/html; charset=utf-8")
+            elif parsed.path == "/api/defaults":
+                self._send_json(default_values())
+            elif parsed.path == "/api/runtime":
+                self._send_json({"checks": checks_as_dicts()})
+            elif parsed.path == "/api/jobs":
+                self._send_json({"jobs": list_jobs()})
+            elif parsed.path == "/api/status":
+                job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
+                self._send_json(job_status(job_path, self.manager.snapshot()))
+            elif parsed.path == "/api/open-output":
+                job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
+                self._send_json(open_output_folder(job_path))
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            payload = self._read_json()
+            if parsed.path == "/api/create-video-job":
+                self._send_json({"job_path": str(write_video_job(payload))})
+            elif parsed.path == "/api/create-voice-job":
+                self._send_json({"job_path": str(write_voice_sample_job(payload))})
+            elif parsed.path == "/api/create-training-job":
+                self._send_json({"job_path": str(write_training_job(payload))})
+            elif parsed.path == "/api/run-job":
+                job_path = Path(str(payload.get("job_path", "")))
+                if not job_path.exists():
+                    raise FileNotFoundError(f"Job file not found: {job_path}")
+                result = self.manager.start(
+                    job_path,
+                    dry_run=bool(payload.get("dry_run", True)),
+                    resume=not bool(payload.get("no_resume", False)),
+                )
+                self._send_json(result)
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+        except Exception as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+
+    def log_message(self, format: str, *args: object) -> None:
+        return
+
+    def _read_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("content-length", "0"))
+        if length <= 0:
+            return {}
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def _send_json(self, data: dict[str, Any], status: int = HTTPStatus.OK) -> None:
+        encoded = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def _send_file(self, path: Path, content_type: str) -> None:
+        if not path.exists():
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def default_values() -> dict[str, str]:
+    return {
+        "app_root": str(RUNTIME.app_root),
+        "jobs_root": str(RUNTIME.app_root / "singing_app" / "jobs"),
+        "projects_root": str(RUNTIME.projects_root),
+        "default_job": str(RUNTIME.app_root / "singing_app" / "jobs" / "pomao_demo_job.json"),
+        "default_character_name": "Pomao",
+        "default_voice_description": "小只、安静、略带鼻音和一点点沙哑，但吐字要清楚",
+        "default_character_image": str(RUNTIME.voice_pipeline_root / "Generated_image.png"),
+        "default_model": str(RUNTIME.default_model),
+        "default_index": str(RUNTIME.default_index),
+        "default_song": str(RUNTIME.voice_pipeline_root / "input_song" / "cancel_send_20s_30s_test.wav"),
+        "default_sample_dir": str(RUNTIME.projects_root / "demo_character_voice_samples" / "character" / "voice" / "samples"),
+    }
+
+
+def list_jobs() -> list[dict[str, str]]:
+    jobs_root = RUNTIME.app_root / "singing_app" / "jobs"
+    jobs_root.mkdir(parents=True, exist_ok=True)
+    jobs = []
+    for path in sorted(jobs_root.glob("*.json")):
+        try:
+            label = _read_json(path).get("job_id", path.stem)
+        except Exception:
+            label = path.stem
+        jobs.append({"label": label, "path": str(path)})
+    return jobs
+
+
+def job_status(job_path: Path, runner_snapshot: dict[str, Any]) -> dict[str, Any]:
+    status: dict[str, Any] = {"job_path": str(job_path), "runner": runner_snapshot}
+    if not job_path.exists():
+        return status | {"exists": False, "state": None, "artifacts": None, "logs": []}
+    data = _read_json(job_path)
+    output_dir = Path(data["output_dir"])
+    return status | {
+        "exists": True,
+        "output_dir": str(output_dir),
+        "state": _read_json_if_exists(output_dir / "state.json"),
+        "artifacts": _read_json_if_exists(output_dir / "artifacts.json"),
+        "logs": read_logs(output_dir / "logs"),
+    }
+
+
+def read_logs(logs_dir: Path) -> list[dict[str, str]]:
+    if not logs_dir.exists():
+        return []
+    logs = []
+    for path in sorted(logs_dir.glob("*.log")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        logs.append({"name": path.name, "text": text[-12000:]})
+    return logs
+
+
+def open_output_folder(job_path: Path) -> dict[str, str]:
+    if not job_path.exists():
+        raise FileNotFoundError(f"Job file not found: {job_path}")
+    output_dir = Path(_read_json(job_path)["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    os.startfile(str(output_dir))
+    return {"opened": str(output_dir)}
+
+
+def write_video_job(payload: dict[str, Any]) -> Path:
+    character_name = _required_text(payload, "character_name")
+    song_path = _required_path(payload, "song_path")
+    character_image = _required_path(payload, "character_image")
+    model_path = _required_path(payload, "model_path")
+    index_path = _required_path(payload, "index_path")
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_singing_video"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "create_character", "generate_training_text", "import_voice_model", "trim_song", "separate_vocals", "convert_vocals", "mix_audio", "compose_video", "export_result"],
+        "inputs": {
+            "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip(), "image_path": str(character_image), "mouth_shape_paths": [str(character_image)]},
+            "voice": {"model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path)},
+            "song": {"path": str(song_path), "start_seconds": float(payload.get("start_seconds", 0)), "duration_seconds": float(payload.get("duration_seconds", 30))},
+            "video": {"character_image": str(character_image)},
+        },
+        "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
+    })
+    return job_path
+
+
+def write_voice_sample_job(payload: dict[str, Any]) -> Path:
+    character_name = _required_text(payload, "character_name")
+    character_image = _required_path(payload, "character_image")
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_voice_samples"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "create_character", "generate_training_text", "generate_voice_samples", "export_result"],
+        "inputs": {
+            "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip(), "image_path": str(character_image), "mouth_shape_paths": [str(character_image)]},
+            "voice": {"model_name": f"{character_id}_voice", "tts_voice": str(payload.get("tts_voice", "zh-CN-YunxiNeural")).strip() or "zh-CN-YunxiNeural"},
+        },
+        "settings": {},
+    })
+    return job_path
+
+
+def write_training_job(payload: dict[str, Any]) -> Path:
+    character_name = _required_text(payload, "character_name")
+    sample_dir = _required_path(payload, "sample_dir")
+    model_name = _required_text(payload, "model_name")
+    epochs = int(payload.get("epochs", 5))
+    if epochs < 1:
+        raise ValueError("Epochs must be >= 1.")
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_train_{_slugify(model_name)}"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "train_voice_model", "export_result"],
+        "inputs": {"voice": {"model_name": model_name, "dataset_path": str(sample_dir), "epochs": epochs}},
+        "settings": {},
+    })
+    return job_path
+
+
+def _job_path(job_id: str) -> Path:
+    path = RUNTIME.app_root / "singing_app" / "jobs" / f"{job_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _required_text(payload: dict[str, Any], key: str) -> str:
+    value = str(payload.get(key, "")).strip()
+    if not value:
+        raise ValueError(f"{key} is required.")
+    return value
+
+
+def _required_path(payload: dict[str, Any], key: str) -> Path:
+    path = Path(_required_text(payload, key))
+    if not path.exists():
+        raise FileNotFoundError(f"{key} not found: {path}")
+    return path
+
+
+def _slugify(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("_").lower() or "character"
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def _read_json_if_exists(path: Path) -> Any:
+    if not path.exists():
+        return None
+    return _read_json(path)
+
+
+def _write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+        file.write("\n")
+
+
+def run_web_server(host: str = "127.0.0.1", port: int = 7860, open_browser: bool = True) -> None:
+    SingingWebHandler.manager = WebJobManager()
+    server = ThreadingHTTPServer((host, port), SingingWebHandler)
+    url = f"http://{host}:{port}"
+    print(f"AI Singing Video web UI: {url}")
+    if open_browser:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    server.serve_forever()
+
+
+def main() -> None:
+    run_web_server()
+
+
+if __name__ == "__main__":
+    main()

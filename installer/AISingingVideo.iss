@@ -29,6 +29,7 @@ Source: "..\voice_pipeline\Generated_image*.png"; DestDir: "{app}\voice_pipeline
 Source: "..\voice_pipeline\models\pomao_clear_voice_10e_1350s.pth"; DestDir: "{app}\voice_pipeline\models"; Flags: ignoreversion
 Source: "..\voice_pipeline\models\pomao_clear_voice.index"; DestDir: "{app}\voice_pipeline\models"; Flags: ignoreversion
 Source: "..\run_singing_app.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\run_singing_web.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\check_singing_app_runtime.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\USER_GUIDE_zh.md"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -37,6 +38,7 @@ Name: "{app}\singing_app\projects"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName} Web UI"; Filename: "{app}\run_singing_web.bat"
 Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]

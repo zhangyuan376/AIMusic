@@ -12,6 +12,7 @@ $items = @(
   "singing_app",
   "installer",
   "run_singing_app.bat",
+  "run_singing_web.bat",
   "check_singing_app_runtime.bat"
 )
 
