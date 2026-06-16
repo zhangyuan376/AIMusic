@@ -14,6 +14,10 @@ if not exist "%PYTHON%" (
 )
 
 cd /d "%APP_ROOT%"
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr ":7860" ^| findstr "LISTENING"') do (
+  echo Stopping old web server on port 7860, PID %%P
+  taskkill /PID %%P /T /F >nul 2>nul
+)
 "%PYTHON%" -m singing_app.main web
 
 endlocal
