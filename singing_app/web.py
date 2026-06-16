@@ -100,6 +100,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             payload = self._read_json()
             if parsed.path == "/api/create-video-job":
                 self._send_json({"job_path": str(write_video_job(payload))})
+            elif parsed.path == "/api/create-separation-job":
+                self._send_json({"job_path": str(write_separation_job(payload))})
             elif parsed.path == "/api/create-voice-job":
                 self._send_json({"job_path": str(write_voice_sample_job(payload))})
             elif parsed.path == "/api/create-training-job":
@@ -372,19 +374,75 @@ def write_video_job(payload: dict[str, Any]) -> Path:
     job_id = f"{character_id}_singing_video"
     project_dir = RUNTIME.projects_root / job_id
     job_path = _job_path(job_id)
+    separation = load_separation_artifacts(
+        str(payload.get("separation_job_path", "")).strip(),
+        validate=not bool(payload.get("dry_run", False)),
+    )
+    song_inputs: dict[str, Any] = {
+        "path": str(song_path),
+        "start_seconds": float(payload.get("start_seconds", 0)),
+        "duration_seconds": float(payload.get("duration_seconds", 30)),
+    }
+    if separation:
+        steps = ["check_runtime", "create_character", "generate_training_text", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "compose_video", "export_result"]
+        song_inputs["vocals_path"] = separation["vocals"]
+        song_inputs["instrumental_path"] = separation["instrumental"]
+    else:
+        steps = ["check_runtime", "create_character", "generate_training_text", "import_voice_model", "trim_song", "separate_vocals", "convert_vocals", "mix_audio", "compose_video", "export_result"]
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
-        "steps": ["check_runtime", "create_character", "generate_training_text", "import_voice_model", "trim_song", "separate_vocals", "convert_vocals", "mix_audio", "compose_video", "export_result"],
+        "steps": steps,
         "inputs": {
             "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip(), "image_path": str(character_image), "mouth_shape_paths": [str(character_image)]},
             "voice": {"model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path), "voice_id": voice_id},
-            "song": {"path": str(song_path), "start_seconds": float(payload.get("start_seconds", 0)), "duration_seconds": float(payload.get("duration_seconds", 30))},
+            "song": song_inputs,
             "video": {"character_image": str(character_image)},
         },
         "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
     })
     return job_path
+
+
+def write_separation_job(payload: dict[str, Any]) -> Path:
+    song_path = _required_path(payload, "song_path")
+    song_id = _slugify(Path(song_path).stem)
+    job_id = f"{song_id}_vocal_separation"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "trim_song", "separate_vocals", "export_result"],
+        "inputs": {
+            "song": {
+                "path": str(song_path),
+                "start_seconds": float(payload.get("start_seconds", 0)),
+                "duration_seconds": float(payload.get("duration_seconds", 30)),
+            },
+        },
+        "settings": {},
+    })
+    return job_path
+
+
+def load_separation_artifacts(job_path_value: str, validate: bool = True) -> dict[str, str]:
+    if not job_path_value:
+        return {}
+    job_path = Path(job_path_value)
+    if not job_path.exists():
+        raise FileNotFoundError(f"Separation job not found: {job_path}")
+    artifacts = job_status(job_path, {"running": False, "current_job": "", "messages": []}).get("artifacts") or {}
+    vocals = str(artifacts.get("vocals", "")).strip()
+    instrumental = str(artifacts.get("instrumental", "")).strip()
+    if validate:
+        if not vocals or not instrumental:
+            raise ValueError(f"Separation artifacts are not ready: {job_path}")
+        vocals = str(_required_existing_path(vocals, "separated vocals"))
+        instrumental = str(_required_existing_path(instrumental, "separated instrumental"))
+    elif not vocals or not instrumental:
+        raise ValueError(f"Separation artifacts are not ready: {job_path}")
+    return {"vocals": vocals, "instrumental": instrumental}
 
 
 def write_voice_sample_job(payload: dict[str, Any]) -> Path:

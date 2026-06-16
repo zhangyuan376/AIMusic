@@ -37,6 +37,7 @@ class HarnessRunner:
             "import_voice_model": self.import_voice_model,
             "trim_song": self.trim_song,
             "separate_vocals": self.separate_vocals,
+            "use_separated_audio": self.use_separated_audio,
             "convert_vocals": self.convert_vocals,
             "mix_audio": self.mix_audio,
             "compose_video": self.compose_video,
@@ -239,6 +240,21 @@ class HarnessRunner:
         return StepResult(
             status="succeeded",
             artifacts={"vocals": str(vocals), "instrumental": str(instrumental)},
+        )
+
+    def use_separated_audio(self, context: StepContext) -> StepResult:
+        song = context.job.inputs["song"]
+        vocals = Path(song["vocals_path"])
+        instrumental = Path(song["instrumental_path"])
+        if not context.dry_run:
+            if not vocals.exists():
+                raise FileNotFoundError(f"Separated vocals not found: {vocals}")
+            if not instrumental.exists():
+                raise FileNotFoundError(f"Separated instrumental not found: {instrumental}")
+        return StepResult(
+            status="succeeded",
+            artifacts={"vocals": str(vocals), "instrumental": str(instrumental)},
+            message="Using pre-separated vocal and instrumental tracks.",
         )
 
     def convert_vocals(self, context: StepContext) -> StepResult:

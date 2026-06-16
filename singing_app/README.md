@@ -49,7 +49,9 @@ The browser workflow is designed for non-technical use:
 1. Describe the character voice style.
 2. Generate audition samples and listen in the browser.
 3. Save the preferred voice into local voice history.
-4. Pick a song, reuse a historical voice, and run vocal separation, RVC conversion, mix, and video export.
+4. Train or select a ready historical voice.
+5. Pick a song and run vocal separation as its own job.
+6. Generate the cover video from the separated vocal/instrumental tracks.
 
 Historical voices are stored locally in `singing_app/voice_library.json`. This file is user data and should not be committed or bundled into installer builds.
 

@@ -75,7 +75,7 @@
     </section>
 
     <section>
-      <h2>第 3 步：选择历史声线和音乐</h2>
+      <h2>第 3 步：选择历史声线并训练模型</h2>
       <button class="secondary" onclick="loadVoices()">刷新历史声线</button>
       <label>历史声线</label>
       <select id="voice_select"></select>
@@ -89,14 +89,24 @@
         <button id="train_voice_button" onclick="trainSelectedVoice()">训练这个声线模型</button>
         <div id="train_voice_status" class="muted">如果声线未绑定模型，点训练即可。训练结果会自动绑定到当前声线。</div>
       </div>
+    </section>
 
+    <section>
+      <h2>第 4 步：单独做人声分离</h2>
       <label>音乐文件路径</label>
       <input id="song_path" placeholder="例如 D:\music\song.wav">
       <div class="grid">
         <div><label>从第几秒开始</label><input id="start_seconds" type="number" value="0"></div>
         <div><label>截取多少秒</label><input id="duration_seconds" type="number" value="30"></div>
       </div>
-      <button class="big" onclick="makeCover()">自动人声分离并生成翻唱视频</button>
+      <button id="separate_button" class="big" onclick="separateVocals()">开始人声分离</button>
+      <div id="separation_status" class="muted">先把原唱分成人声和伴奏，完成后再生成翻唱视频。</div>
+    </section>
+
+    <section>
+      <h2>第 5 步：生成翻唱视频</h2>
+      <div class="muted">使用第 4 步分离出来的人声和伴奏，再套用第 3 步选中的声线生成视频。</div>
+      <button class="big" onclick="makeCover()">生成翻唱视频</button>
       <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
     </section>
 
@@ -130,6 +140,8 @@
     let progressTimer = null;
     let activeTask = "";
     let trainingVoiceId = "";
+    let separationJobPath = "";
+    let separationReady = false;
 
     async function api(path, options = {}) {
       const res = await fetch(path, options);
@@ -159,6 +171,11 @@
     function auditionStatus(text, bad = false) {
       $("audition_status").textContent = text;
       $("audition_status").className = bad ? "bad" : "muted";
+    }
+
+    function separationStatus(text, bad = false) {
+      $("separation_status").textContent = text;
+      $("separation_status").className = bad ? "bad" : "muted";
     }
 
     function setButtonBusy(id, busy, text, idleText) {
@@ -248,7 +265,7 @@
       }
       $("voice_hint").textContent = voice.ready
         ? `可用于翻唱：${voice.description || voice.name}`
-        : "这个声线只有试听样本，还没有绑定 .pth/.index。请先训练，训练完成后绑定结果。";
+        : "这个声线只有试听样本，还没有绑定 .pth/.index。请先训练，训练完成后会自动绑定。";
       $("voice_train_model_name").value = voice.training_model_name || `${voice.id}_voice`;
       $("train_voice_status").textContent = voice.training_job_path
         ? `最近训练任务：${voice.training_job_path}`
@@ -342,6 +359,7 @@
         const voice = voices.find(v => v.id === $("voice_select").value);
         if (!voice) throw new Error("请先选择一个历史声线。");
         if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先训练或导入 .pth/.index。");
+        if (!separationReady || !separationJobPath) throw new Error("请先完成第 4 步人声分离，再生成翻唱视频。");
         const result = await post("/api/create-video-job", {
           character_name: voice.name,
           voice_description: voice.description,
@@ -349,7 +367,9 @@
           song_path: $("song_path").value,
           character_image: $("voice_character_image").value,
           start_seconds: $("start_seconds").value,
-          duration_seconds: $("duration_seconds").value
+          duration_seconds: $("duration_seconds").value,
+          separation_job_path: separationJobPath,
+          dry_run: $("dry_run").checked
         });
         setJob(result.job_path);
         await runJob(true);
@@ -357,6 +377,39 @@
         status(err.message, true);
         alert(err.message);
       }
+    }
+
+    async function separateVocals() {
+      try {
+        separationReady = false;
+        setButtonBusy("separate_button", true, "正在分离...", "开始人声分离");
+        setProgress("正在创建人声分离任务...", true);
+        separationStatus("正在创建人声分离任务。");
+        const result = await post("/api/create-separation-job", {
+          song_path: $("song_path").value,
+          start_seconds: $("start_seconds").value,
+          duration_seconds: $("duration_seconds").value
+        });
+        separationJobPath = result.job_path;
+        setJob(result.job_path);
+        startProgressPolling("separation");
+        await runJob(true);
+        separationStatus("人声分离任务已启动。完成后会自动用于下一步生成翻唱视频。");
+      } catch (err) {
+        stopProgressPolling();
+        setButtonBusy("separate_button", false, "", "开始人声分离");
+        setProgress(err.message, false, true);
+        separationStatus(err.message, true);
+        status(err.message, true);
+        alert(err.message);
+      }
+    }
+
+    function invalidateSeparation() {
+      if (!separationJobPath && !separationReady) return;
+      separationJobPath = "";
+      separationReady = false;
+      separationStatus("音乐或截取时间已变化，请重新做人声分离。");
     }
 
     async function trainSelectedVoice() {
@@ -446,12 +499,19 @@
               bindVoiceById(trainingVoiceId);
             }
           }
+          if (activeTask === "separation") {
+            setButtonBusy("separate_button", false, "", "开始人声分离");
+            separationReady = true;
+            separationJobPath = $("job_path").value;
+            separationStatus("人声分离已完成，可以进入第 5 步生成翻唱视频。");
+          }
           stopProgressPolling();
         }
         if (lastMessage.startsWith("Job failed:")) {
           setProgress(lastMessage, false, true);
           setButtonBusy("audition_button", false, "", "生成试听声线");
           setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
+          setButtonBusy("separate_button", false, "", "开始人声分离");
           stopProgressPolling();
         }
       }
@@ -460,6 +520,7 @@
     function activeTaskLabel(task) {
       if (task === "audition") return "试听声线";
       if (task === "training") return "声线训练";
+      if (task === "separation") return "人声分离";
       return "任务";
     }
 
@@ -482,6 +543,8 @@
       return [
         artifacts.result_video ? `视频：${artifacts.result_video}` : "",
         artifacts.result_audio ? `音频：${artifacts.result_audio}` : "",
+        artifacts.vocals ? `原唱人声：${artifacts.vocals}` : "",
+        artifacts.instrumental ? `伴奏：${artifacts.instrumental}` : "",
         artifacts.sample_dir ? `试听样本：${artifacts.sample_dir}` : "",
         artifacts.trained_model_path ? `模型：${artifacts.trained_model_path}` : "",
         artifacts.trained_index_path ? `索引：${artifacts.trained_index_path}` : "",
@@ -495,6 +558,9 @@
     $("voice_select").addEventListener("change", updateVoiceHint);
     $("job_select").addEventListener("change", () => setJob($("job_select").value));
     $("job_path").addEventListener("change", refreshStatus);
+    $("song_path").addEventListener("input", invalidateSeparation);
+    $("start_seconds").addEventListener("input", invalidateSeparation);
+    $("duration_seconds").addEventListener("input", invalidateSeparation);
     window.addEventListener("error", (event) => {
       const message = event.message || "页面脚本出错，请刷新页面。";
       status(message, true);
