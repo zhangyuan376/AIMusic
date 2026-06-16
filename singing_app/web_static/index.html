@@ -17,6 +17,7 @@
     input, select, textarea { box-sizing: border-box; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #3a4255; background: #0d1119; color: #f3f6ff; font-size: 14px; }
     textarea { min-height: 86px; resize: vertical; }
     button { margin: 10px 8px 0 0; padding: 12px 16px; border: 0; border-radius: 10px; background: #4f7cff; color: white; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: 0.65; cursor: wait; }
     button.secondary { background: #30384a; }
     button.big { width: 100%; margin: 14px 0 0; padding: 16px; font-size: 18px; }
     pre { overflow: auto; max-height: 260px; padding: 12px; border-radius: 10px; background: #0b0e14; border: 1px solid #2b3140; white-space: pre-wrap; }
@@ -31,6 +32,10 @@
     .muted { color: #98a6c5; }
     .ok { color: #74d99f; }
     .bad { color: #ff8b8b; }
+    .busy { display: inline-flex; align-items: center; gap: 8px; color: #91adff; }
+    .spinner { width: 15px; height: 15px; border: 2px solid #53617c; border-top-color: #91adff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    .progress-box { margin-top: 12px; padding: 12px; border-radius: 12px; background: #101520; border: 1px solid #30384a; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 860px) { .steps, .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -85,7 +90,7 @@
           <div><label>训练轮数</label><input id="voice_train_epochs" type="number" value="5"></div>
           <div><label>模型名</label><input id="voice_train_model_name" placeholder="自动生成即可"></div>
         </div>
-        <button onclick="trainSelectedVoice()">训练这个声线模型</button>
+        <button id="train_voice_button" onclick="trainSelectedVoice()">训练这个声线模型</button>
         <button class="secondary" onclick="bindSelectedVoice()">绑定训练结果</button>
         <div id="train_voice_status" class="muted">如果声线未绑定模型，先训练，训练完成后再绑定结果。</div>
       </div>
@@ -103,6 +108,7 @@
     <section>
       <h2>状态</h2>
       <div id="friendly_status" class="muted">还没有开始。</div>
+      <div id="task_progress" class="progress-box muted">当前没有任务运行。</div>
       <pre id="runner"></pre>
       <h3>输出文件</h3>
       <pre id="artifacts"></pre>
@@ -126,6 +132,8 @@
     let selectedSample = null;
     let lastSampleDir = "";
     let voices = [];
+    let progressTimer = null;
+    let activeTask = "";
 
     async function api(path, options = {}) {
       const res = await fetch(path, options);
@@ -155,6 +163,29 @@
     function auditionStatus(text, bad = false) {
       $("audition_status").textContent = text;
       $("audition_status").className = bad ? "bad" : "muted";
+    }
+
+    function setButtonBusy(id, busy, text, idleText) {
+      const button = $(id);
+      button.disabled = busy;
+      button.innerHTML = busy ? `<span class="busy"><span class="spinner"></span>${text}</span>` : idleText;
+    }
+
+    function setProgress(text, busy = false, bad = false) {
+      $("task_progress").innerHTML = busy ? `<span class="busy"><span class="spinner"></span>${text}</span>` : text;
+      $("task_progress").className = bad ? "progress-box bad" : "progress-box muted";
+    }
+
+    function startProgressPolling(taskName) {
+      activeTask = taskName;
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = setInterval(() => refreshStatus().catch(err => setProgress(err.message, false, true)), 1000);
+    }
+
+    function stopProgressPolling() {
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = null;
+      activeTask = "";
     }
 
     function setJob(path) {
@@ -225,10 +256,9 @@
     }
 
     async function generateAuditions() {
-      const button = $("audition_button");
       try {
-        button.disabled = true;
-        button.textContent = "正在生成试听...";
+        setButtonBusy("audition_button", true, "正在生成试听...", "生成试听声线");
+        setProgress("正在准备生成试听声线...", true);
         auditionStatus("正在创建声线任务，请稍等。");
         status("正在创建声线试听任务。");
         const result = await post("/api/create-voice-job", {
@@ -238,16 +268,17 @@
           tts_voice: "zh-CN-YunxiNeural"
         });
         setJob(result.job_path);
+        startProgressPolling("audition");
         await runJob(false);
         auditionStatus("任务已启动。生成完成后会自动刷新试听列表，也可以手动点“刷新试听列表”。");
         status("正在生成试听样本，稍后点“刷新试听列表”。");
       } catch (err) {
+        stopProgressPolling();
+        setButtonBusy("audition_button", false, "", "生成试听声线");
+        setProgress(err.message, false, true);
         auditionStatus(err.message, true);
         status(err.message, true);
         alert(err.message);
-      } finally {
-        button.disabled = false;
-        button.textContent = "生成试听声线";
       }
     }
 
@@ -317,6 +348,8 @@
         const voice = voices.find(v => v.id === $("voice_select").value);
         if (!voice) throw new Error("请先选择一个历史声线。");
         if (!voice.sample_dir) throw new Error("这个声线没有试听样本目录，请先生成试听并保存声线。");
+        setButtonBusy("train_voice_button", true, "正在训练...", "训练这个声线模型");
+        setProgress("正在创建训练任务...", true);
         $("train_voice_status").textContent = "正在创建训练任务。";
         const result = await post("/api/create-training-from-voice", {
           voice_id: voice.id,
@@ -325,9 +358,13 @@
         });
         setJob(result.job_path);
         await loadVoices();
+        startProgressPolling("training");
         await runJob(true);
         $("train_voice_status").textContent = "训练任务已启动。训练很慢，完成后点击“绑定训练结果”。";
       } catch (err) {
+        stopProgressPolling();
+        setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
+        setProgress(err.message, false, true);
         $("train_voice_status").textContent = err.message;
         $("train_voice_status").className = "bad";
         alert(err.message);
@@ -371,16 +408,46 @@
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
       if (data.runner && data.runner.running) {
         status("任务正在运行，请等待。");
+        setProgress(`${activeTask ? activeTaskLabel(activeTask) : "任务"}正在运行：${currentStepText(data.state)}`, true);
       }
       const messages = (data.runner && data.runner.messages) || [];
       const lastMessage = messages.length ? messages[messages.length - 1] : "";
       if (data.runner && !data.runner.running && lastMessage) {
         status(lastMessage);
         if (lastMessage === "Job finished.") {
-          auditionStatus("任务已完成，可以刷新试听列表并播放选择。");
-          loadSamples().catch(() => {});
+          setProgress(`${activeTask ? activeTaskLabel(activeTask) : "任务"}已完成。`, false);
+          if (activeTask === "audition") {
+            setButtonBusy("audition_button", false, "", "生成试听声线");
+            auditionStatus("任务已完成，可以刷新试听列表并播放选择。");
+            loadSamples().catch(() => {});
+          }
+          if (activeTask === "training") {
+            setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
+            $("train_voice_status").textContent = "训练任务已完成。请点击“绑定训练结果”。";
+          }
+          stopProgressPolling();
+        }
+        if (lastMessage.startsWith("Job failed:")) {
+          setProgress(lastMessage, false, true);
+          setButtonBusy("audition_button", false, "", "生成试听声线");
+          setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
+          stopProgressPolling();
         }
       }
+    }
+
+    function activeTaskLabel(task) {
+      if (task === "audition") return "试听声线";
+      if (task === "training") return "声线训练";
+      return "任务";
+    }
+
+    function currentStepText(state) {
+      const entries = Object.entries(state || {});
+      const running = entries.find(([, value]) => value.status === "running");
+      if (running) return running[0];
+      const last = entries.length ? entries[entries.length - 1] : null;
+      return last ? `${last[0]} ${last[1].status}` : "等待开始";
     }
 
     function summarizeRunner(data) {
