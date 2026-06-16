@@ -56,7 +56,8 @@
       <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
       <label>角色图片路径</label>
       <input id="voice_character_image">
-      <button class="big" onclick="generateAuditions()">生成试听声线</button>
+      <button id="audition_button" class="big" onclick="generateAuditions()">生成试听声线</button>
+      <div id="audition_status" class="muted" style="margin-top:10px;">还没有生成试听。</div>
       <div class="muted">提示：生成试听需要 Edge TTS，通常会联网；只想测试流程可在高级区勾选 dry-run。</div>
     </section>
 
@@ -142,6 +143,11 @@
       $("friendly_status").className = bad ? "bad" : "muted";
     }
 
+    function auditionStatus(text, bad = false) {
+      $("audition_status").textContent = text;
+      $("audition_status").className = bad ? "bad" : "muted";
+    }
+
     function setJob(path) {
       $("job_path").value = path;
       loadJobs();
@@ -205,7 +211,11 @@
     }
 
     async function generateAuditions() {
+      const button = $("audition_button");
       try {
+        button.disabled = true;
+        button.textContent = "正在生成试听...";
+        auditionStatus("正在创建声线任务，请稍等。");
         status("正在创建声线试听任务。");
         const result = await post("/api/create-voice-job", {
           character_name: $("voice_character_name").value,
@@ -215,10 +225,15 @@
         });
         setJob(result.job_path);
         await runJob(false);
+        auditionStatus("任务已启动。生成完成后会自动刷新试听列表，也可以手动点“刷新试听列表”。");
         status("正在生成试听样本，稍后点“刷新试听列表”。");
       } catch (err) {
+        auditionStatus(err.message, true);
         status(err.message, true);
         alert(err.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = "生成试听声线";
       }
     }
 
@@ -301,8 +316,18 @@
       $("state").textContent = JSON.stringify(data.state, null, 2);
       $("artifacts").textContent = summarizeArtifacts(data.artifacts);
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
-      if (data.runner?.running) status("任务正在运行，请等待。");
-      if (!data.runner?.running && data.runner?.messages?.at(-1)) status(data.runner.messages.at(-1));
+      if (data.runner && data.runner.running) {
+        status("任务正在运行，请等待。");
+      }
+      const messages = (data.runner && data.runner.messages) || [];
+      const lastMessage = messages.length ? messages[messages.length - 1] : "";
+      if (data.runner && !data.runner.running && lastMessage) {
+        status(lastMessage);
+        if (lastMessage === "Job finished.") {
+          auditionStatus("任务已完成，可以刷新试听列表并播放选择。");
+          loadSamples().catch(() => {});
+        }
+      }
     }
 
     function summarizeRunner(data) {
@@ -329,8 +354,19 @@
     $("voice_select").addEventListener("change", updateVoiceHint);
     $("job_select").addEventListener("change", () => setJob($("job_select").value));
     $("job_path").addEventListener("change", refreshStatus);
-    loadDefaults().then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), refreshStatus()])).catch(err => alert(err.message));
-    setInterval(refreshStatus, 4000);
+    window.addEventListener("error", (event) => {
+      const message = event.message || "页面脚本出错，请刷新页面。";
+      status(message, true);
+      auditionStatus(message, true);
+    });
+    loadDefaults()
+      .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), refreshStatus()]))
+      .catch(err => {
+        status(err.message, true);
+        auditionStatus(err.message, true);
+        alert(err.message);
+      });
+    setInterval(() => refreshStatus().catch(err => status(err.message, true)), 4000);
   </script>
 </body>
 </html>
