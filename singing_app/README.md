@@ -44,6 +44,15 @@ d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
 
 The web UI opens `http://127.0.0.1:7860` and exposes the same harness flow through local JSON APIs. It is intended for easier debugging in a browser.
 
+The browser workflow is designed for non-technical use:
+
+1. Describe the character voice style.
+2. Generate audition samples and listen in the browser.
+3. Save the preferred voice into local voice history.
+4. Pick a song, reuse a historical voice, and run vocal separation, RVC conversion, mix, and video export.
+
+Historical voices are stored locally in `singing_app/voice_library.json`. This file is user data and should not be committed or bundled into installer builds.
+
 The first UI is a harness control panel. It can:
 
 - create a singing video job from a simple form

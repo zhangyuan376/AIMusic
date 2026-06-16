@@ -29,6 +29,7 @@ New-Item -ItemType Directory -Force -Path $appTarget | Out-Null
 Get-ChildItem $appSource -Recurse -File | Where-Object {
   $_.FullName -notlike (Join-Path $appSource "projects\*") -and
   $_.FullName -notlike "*\__pycache__\*" -and
+  $_.Name -ne "voice_library.json" -and
   $_.Extension -ne ".pyc"
 } | ForEach-Object {
   $relative = $_.FullName.Substring($appSource.Length).TrimStart("\")

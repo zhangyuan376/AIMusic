@@ -11,6 +11,7 @@ voice_pipeline/input_song/
 voice_pipeline/separated/
 voice_pipeline/auditions*/
 singing_app/projects/
+singing_app/voice_library.json
 dist/
 dist_dev/
 offline_staging/

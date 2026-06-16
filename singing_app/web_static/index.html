@@ -7,124 +7,115 @@
   <style>
     :root { color-scheme: dark; font-family: "Segoe UI", Arial, sans-serif; }
     body { margin: 0; background: #0f1117; color: #f3f6ff; }
-    header { padding: 28px 24px; text-align: center; background: linear-gradient(135deg, #1f2a44, #171923); border-bottom: 1px solid #2b3140; }
+    header { padding: 28px 20px; text-align: center; background: linear-gradient(135deg, #223052, #171923); border-bottom: 1px solid #2b3140; }
     h1 { margin: 0 0 8px; font-size: 30px; }
-    h2 { margin: 0 0 14px; font-size: 20px; }
-    h3 { margin: 20px 0 10px; font-size: 16px; color: #c8d3ef; }
-    main { max-width: 1040px; margin: 0 auto; padding: 22px; }
+    main { max-width: 1080px; margin: 0 auto; padding: 22px; }
     section { margin-bottom: 18px; padding: 18px; background: #171b24; border: 1px solid #2b3140; border-radius: 16px; }
+    h2 { margin: 0 0 14px; font-size: 20px; }
+    h3 { margin: 18px 0 10px; font-size: 16px; color: #c8d3ef; }
     label { display: block; margin: 12px 0 6px; color: #d8def1; font-size: 14px; }
     input, select, textarea { box-sizing: border-box; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #3a4255; background: #0d1119; color: #f3f6ff; font-size: 14px; }
-    textarea { min-height: 72px; resize: vertical; }
+    textarea { min-height: 86px; resize: vertical; }
     button { margin: 10px 8px 0 0; padding: 12px 16px; border: 0; border-radius: 10px; background: #4f7cff; color: white; font-weight: 700; cursor: pointer; }
     button.secondary { background: #30384a; }
     button.big { width: 100%; margin: 14px 0 0; padding: 16px; font-size: 18px; }
-    pre { overflow: auto; max-height: 280px; padding: 12px; border-radius: 10px; background: #0b0e14; border: 1px solid #2b3140; white-space: pre-wrap; }
+    pre { overflow: auto; max-height: 260px; padding: 12px; border-radius: 10px; background: #0b0e14; border: 1px solid #2b3140; white-space: pre-wrap; }
     details { margin-top: 14px; padding: 12px; border: 1px solid #30384a; border-radius: 12px; background: #121722; }
     summary { cursor: pointer; color: #b9c6e4; font-weight: 700; }
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
     .step { padding: 14px; background: #101520; border: 1px solid #30384a; border-radius: 12px; }
     .step b { display: block; margin-bottom: 5px; color: #91adff; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .sample { padding: 12px; margin: 10px 0; background: #101520; border: 1px solid #30384a; border-radius: 12px; }
+    .sample audio { width: 100%; margin-top: 8px; }
     .muted { color: #98a6c5; }
     .ok { color: #74d99f; }
     .bad { color: #ff8b8b; }
-    .hidden { display: none; }
-    @media (max-width: 760px) { .steps, .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 860px) { .steps, .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <header>
     <h1>AI Singing Video</h1>
-    <div class="muted">傻瓜式本地网页版：选歌，点生成，看结果。</div>
+    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 选音乐自动翻唱。</div>
   </header>
 
   <main>
     <section>
-      <h2>一键生成唱歌视频</h2>
       <div class="steps">
-        <div class="step"><b>1. 检查环境</b><span>确认运行时和模型都在。</span></div>
-        <div class="step"><b>2. 填歌曲路径</b><span>默认用 Pomao 角色和声线。</span></div>
-        <div class="step"><b>3. 开始生成</b><span>完成后打开输出目录。</span></div>
+        <div class="step"><b>1. 设计声线</b><span>输入角色风格，自动生成试听样本。</span></div>
+        <div class="step"><b>2. 试听选择</b><span>听完保存喜欢的声线。</span></div>
+        <div class="step"><b>3. 选择音乐</b><span>系统自动人声分离。</span></div>
+        <div class="step"><b>4. 生成翻唱</b><span>以后可直接复用历史声线。</span></div>
       </div>
 
-      <button onclick="loadRuntime()">检查环境</button>
-      <pre id="runtime">点击“检查环境”查看结果。</pre>
+      <h2>第 1 步：描述你想要的角色声线</h2>
+      <label>角色名</label>
+      <input id="voice_character_name" placeholder="例如 Pomao">
+      <label>角色/声线风格</label>
+      <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
+      <label>角色图片路径</label>
+      <input id="voice_character_image">
+      <button class="big" onclick="generateAuditions()">生成试听声线</button>
+      <div class="muted">提示：生成试听需要 Edge TTS，通常会联网；只想测试流程可在高级区勾选 dry-run。</div>
+    </section>
 
-      <label>歌曲文件路径</label>
-      <input id="song_path" placeholder="例如 D:\music\song.wav">
-
-      <div class="grid">
-        <div>
-          <label>从第几秒开始</label>
-          <input id="start_seconds" type="number" value="0">
-        </div>
-        <div>
-          <label>截取多少秒</label>
-          <input id="duration_seconds" type="number" value="30">
-        </div>
-      </div>
-
-      <label><input id="dry_run" type="checkbox" style="width:auto"> 只测试流程，不真正生成</label>
-      <button class="big" onclick="oneClickGenerate()">开始生成视频</button>
-      <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
-      <button class="secondary" onclick="refreshStatus()">刷新进度</button>
-      <div id="friendly_status" class="muted" style="margin-top:12px;">还没有开始。</div>
+    <section>
+      <h2>第 2 步：试听并保存喜欢的声线</h2>
+      <button class="secondary" onclick="loadSamples()">刷新试听列表</button>
+      <div id="samples" class="muted">生成后这里会出现可播放的试听样本。</div>
 
       <details>
-        <summary>高级设置，一般不用改</summary>
-        <label>角色名</label><input id="video_character_name">
-        <label>声线描述</label><textarea id="video_voice_description"></textarea>
-        <label>角色图片</label><input id="character_image">
-        <label>RVC 模型 .pth</label><input id="model_path">
-        <label>RVC 索引 .index</label><input id="index_path">
-        <label>当前 Job</label>
-        <select id="job_select"></select>
-        <input id="job_path">
-        <label><input id="no_resume" type="checkbox" checked style="width:auto"> 从第一步重跑</label>
+        <summary>如果已经训练好模型，在这里绑定 .pth 和 .index</summary>
+        <label>模型 .pth</label><input id="selected_model_path">
+        <label>索引 .index</label><input id="selected_index_path">
+        <div class="muted">没有模型也可以先保存试听，但暂时不能用于翻唱。训练/导入模型后再绑定即可。</div>
       </details>
     </section>
 
     <section>
-      <h2>生成状态</h2>
+      <h2>第 3 步：选择历史声线和音乐</h2>
+      <button class="secondary" onclick="loadVoices()">刷新历史声线</button>
+      <label>历史声线</label>
+      <select id="voice_select"></select>
+      <div id="voice_hint" class="muted"></div>
+
+      <label>音乐文件路径</label>
+      <input id="song_path" placeholder="例如 D:\music\song.wav">
+      <div class="grid">
+        <div><label>从第几秒开始</label><input id="start_seconds" type="number" value="0"></div>
+        <div><label>截取多少秒</label><input id="duration_seconds" type="number" value="30"></div>
+      </div>
+      <button class="big" onclick="makeCover()">自动人声分离并生成翻唱视频</button>
+      <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
+    </section>
+
+    <section>
+      <h2>状态</h2>
+      <div id="friendly_status" class="muted">还没有开始。</div>
       <pre id="runner"></pre>
       <h3>输出文件</h3>
       <pre id="artifacts"></pre>
       <details>
-        <summary>查看详细日志</summary>
-        <h3>State</h3>
-        <pre id="state"></pre>
-        <h3>Logs</h3>
-        <pre id="logs"></pre>
-      </details>
-    </section>
-
-    <section>
-      <h2>高级功能</h2>
-      <details>
-        <summary>生成声线样本</summary>
-        <label>角色名</label><input id="voice_character_name">
-        <label>声线描述</label><textarea id="voice_description"></textarea>
-        <label>角色图片</label><input id="voice_character_image">
-        <label>TTS voice</label><input id="tts_voice" value="zh-CN-YunxiNeural">
-        <button onclick="createVoiceJob()">创建样本 Job</button>
-        <button onclick="createVoiceJob(true)">创建并运行</button>
-      </details>
-
-      <details>
-        <summary>训练模型，耗时很久</summary>
-        <label>角色名</label><input id="train_character_name">
-        <label>模型名</label><input id="train_model_name" value="demo_character_voice">
-        <label>样本目录</label><input id="sample_dir">
-        <label>Epochs</label><input id="epochs" type="number" value="5">
-        <button onclick="createTrainingJob()">创建训练 Job</button>
-        <button onclick="createTrainingJob(true)">创建并运行训练</button>
+        <summary>高级/调试信息</summary>
+        <button onclick="loadRuntime()">检查环境</button>
+        <label><input id="dry_run" type="checkbox" style="width:auto"> 只测试流程，不真正生成</label>
+        <label><input id="no_resume" type="checkbox" checked style="width:auto"> 从第一步重跑</label>
+        <label>当前 Job</label>
+        <select id="job_select"></select>
+        <input id="job_path">
+        <h3>Runtime</h3><pre id="runtime"></pre>
+        <h3>State</h3><pre id="state"></pre>
+        <h3>Logs</h3><pre id="logs"></pre>
       </details>
     </section>
   </main>
 
   <script>
     const $ = (id) => document.getElementById(id);
+    let selectedSample = null;
+    let lastSampleDir = "";
+    let voices = [];
 
     async function api(path, options = {}) {
       const res = await fetch(path, options);
@@ -137,31 +128,32 @@
       return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     }
 
-    function setFriendlyStatus(text, isBad = false) {
+    function status(text, bad = false) {
       $("friendly_status").textContent = text;
-      $("friendly_status").className = isBad ? "bad" : "muted";
+      $("friendly_status").className = bad ? "bad" : "muted";
     }
 
     function setJob(path) {
       $("job_path").value = path;
-      refreshStatus();
       loadJobs();
+      refreshStatus();
     }
 
     async function loadDefaults() {
       const d = await api("/api/defaults");
-      $("video_character_name").value = d.default_character_name;
       $("voice_character_name").value = d.default_character_name;
-      $("train_character_name").value = d.default_character_name;
-      $("video_voice_description").value = d.default_voice_description;
       $("voice_description").value = d.default_voice_description;
-      $("song_path").value = d.default_song;
-      $("character_image").value = d.default_character_image;
       $("voice_character_image").value = d.default_character_image;
-      $("model_path").value = d.default_model;
-      $("index_path").value = d.default_index;
-      $("sample_dir").value = d.default_sample_dir;
+      $("song_path").value = d.default_song;
       $("job_path").value = d.default_job;
+    }
+
+    async function loadRuntime() {
+      const data = await api("/api/runtime");
+      const ok = data.checks.every(c => c.ok);
+      $("runtime").textContent = data.checks.map(c => `${c.ok ? "OK" : "缺失"}  ${c.name} - ${c.message}`).join("\n");
+      $("runtime").className = ok ? "ok" : "bad";
+      status(ok ? "环境检查通过。" : "环境不完整，请先修复缺失项。", !ok);
     }
 
     async function loadJobs() {
@@ -178,12 +170,119 @@
       }
     }
 
-    async function loadRuntime() {
-      const data = await api("/api/runtime");
-      const ok = data.checks.every(c => c.ok);
-      $("runtime").textContent = data.checks.map(c => `${c.ok ? "OK" : "缺失"}  ${c.name} - ${c.message}`).join("\n");
-      $("runtime").className = ok ? "ok" : "bad";
-      setFriendlyStatus(ok ? "环境检查通过，可以生成。" : "环境不完整，请先修复缺失项。", !ok);
+    async function loadVoices() {
+      const data = await api("/api/voices");
+      voices = data.voices;
+      const select = $("voice_select");
+      select.innerHTML = "";
+      for (const voice of voices) {
+        const option = document.createElement("option");
+        option.value = voice.id;
+        option.textContent = `${voice.name}${voice.ready ? "" : "（未绑定模型）"}`;
+        select.appendChild(option);
+      }
+      updateVoiceHint();
+    }
+
+    function updateVoiceHint() {
+      const voice = voices.find(v => v.id === $("voice_select").value);
+      if (!voice) {
+        $("voice_hint").textContent = "暂无历史声线。";
+        return;
+      }
+      $("voice_hint").textContent = voice.ready
+        ? `可用于翻唱：${voice.description || voice.name}`
+        : "这个声线只有试听样本，还没有绑定 .pth/.index，暂时不能翻唱。";
+    }
+
+    async function generateAuditions() {
+      try {
+        status("正在创建声线试听任务。");
+        const result = await post("/api/create-voice-job", {
+          character_name: $("voice_character_name").value,
+          voice_description: $("voice_description").value,
+          character_image: $("voice_character_image").value,
+          tts_voice: "zh-CN-YunxiNeural"
+        });
+        setJob(result.job_path);
+        await runJob(false);
+        status("正在生成试听样本，稍后点“刷新试听列表”。");
+      } catch (err) {
+        status(err.message, true);
+        alert(err.message);
+      }
+    }
+
+    async function loadSamples() {
+      const data = await api(`/api/samples?job_path=${encodeURIComponent($("job_path").value)}`);
+      const root = $("samples");
+      root.innerHTML = "";
+      if (!data.samples.length) {
+        root.textContent = "还没有试听样本。请先生成声线，或等待任务完成后刷新。";
+        return;
+      }
+      lastSampleDir = data.samples[0].path.replace(/\\[^\\]+$/, "");
+      for (const sample of data.samples) {
+        const div = document.createElement("div");
+        div.className = "sample";
+        div.innerHTML = `<b>${sample.name}</b><audio controls src="${sample.url}"></audio>`;
+        const button = document.createElement("button");
+        button.textContent = "选择这个声线";
+        button.onclick = () => saveVoice(sample);
+        div.appendChild(button);
+        root.appendChild(div);
+      }
+    }
+
+    async function saveVoice(sample) {
+      selectedSample = sample;
+      const name = prompt("给这个声线起个名字", `${$("voice_character_name").value} 声线`);
+      if (!name) return;
+      const saved = await post("/api/save-voice", {
+        name,
+        description: $("voice_description").value,
+        sample_path: sample.path,
+        sample_dir: lastSampleDir,
+        model_path: $("selected_model_path").value,
+        index_path: $("selected_index_path").value
+      });
+      status(saved.voice.ready ? "声线已保存，可用于翻唱。" : "声线已保存到历史，但还没绑定模型，暂时不能翻唱。");
+      await loadVoices();
+      $("voice_select").value = saved.voice.id;
+      updateVoiceHint();
+    }
+
+    async function makeCover() {
+      try {
+        const voice = voices.find(v => v.id === $("voice_select").value);
+        if (!voice) throw new Error("请先选择一个历史声线。");
+        if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先训练或导入 .pth/.index。");
+        const result = await post("/api/create-video-job", {
+          character_name: voice.name,
+          voice_description: voice.description,
+          voice_id: voice.id,
+          song_path: $("song_path").value,
+          character_image: $("voice_character_image").value,
+          start_seconds: $("start_seconds").value,
+          duration_seconds: $("duration_seconds").value
+        });
+        setJob(result.job_path);
+        await runJob(true);
+      } catch (err) {
+        status(err.message, true);
+        alert(err.message);
+      }
+    }
+
+    async function runJob(noResumeDefault) {
+      const data = await post("/api/run-job", {
+        job_path: $("job_path").value,
+        dry_run: $("dry_run").checked,
+        no_resume: noResumeDefault || $("no_resume").checked
+      });
+      $("runner").textContent = data.message;
+      status(data.message);
+      setTimeout(refreshStatus, 800);
     }
 
     async function refreshStatus() {
@@ -193,14 +292,13 @@
       $("state").textContent = JSON.stringify(data.state, null, 2);
       $("artifacts").textContent = summarizeArtifacts(data.artifacts);
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
-      if (data.runner?.running) setFriendlyStatus("正在生成，请等待。可以每隔几秒点刷新进度。");
-      if (!data.runner?.running && data.runner?.messages?.at(-1)) setFriendlyStatus(data.runner.messages.at(-1));
+      if (data.runner?.running) status("任务正在运行，请等待。");
+      if (!data.runner?.running && data.runner?.messages?.at(-1)) status(data.runner.messages.at(-1));
     }
 
     function summarizeRunner(data) {
       const messages = data.runner?.messages || [];
-      const state = data.state || {};
-      const steps = Object.entries(state).map(([name, s]) => `${name}: ${s.status}`);
+      const steps = Object.entries(data.state || {}).map(([name, s]) => `${name}: ${s.status}`);
       return [...messages, "", ...steps].filter(Boolean).join("\n") || "还没有运行。";
     }
 
@@ -209,78 +307,20 @@
       return [
         artifacts.result_video ? `视频：${artifacts.result_video}` : "",
         artifacts.result_audio ? `音频：${artifacts.result_audio}` : "",
-        artifacts.sample_dir ? `样本目录：${artifacts.sample_dir}` : "",
+        artifacts.sample_dir ? `试听样本：${artifacts.sample_dir}` : "",
         artifacts.trained_model_path ? `模型：${artifacts.trained_model_path}` : "",
         artifacts.trained_index_path ? `索引：${artifacts.trained_index_path}` : "",
       ].filter(Boolean).join("\n") || JSON.stringify(artifacts, null, 2);
-    }
-
-    async function oneClickGenerate() {
-      try {
-        setFriendlyStatus("正在创建任务。");
-        await createVideoJob(false);
-        await runJob();
-      } catch (err) {
-        setFriendlyStatus(err.message, true);
-        alert(err.message);
-      }
-    }
-
-    async function createVideoJob(run = false) {
-      const result = await post("/api/create-video-job", {
-        character_name: $("video_character_name").value,
-        voice_description: $("video_voice_description").value,
-        song_path: $("song_path").value,
-        character_image: $("character_image").value,
-        model_path: $("model_path").value,
-        index_path: $("index_path").value,
-        start_seconds: $("start_seconds").value,
-        duration_seconds: $("duration_seconds").value
-      });
-      setJob(result.job_path);
-      if (run) await runJob();
-    }
-
-    async function createVoiceJob(run = false) {
-      const result = await post("/api/create-voice-job", {
-        character_name: $("voice_character_name").value,
-        voice_description: $("voice_description").value,
-        character_image: $("voice_character_image").value,
-        tts_voice: $("tts_voice").value
-      });
-      setJob(result.job_path);
-      if (run) await runJob();
-    }
-
-    async function createTrainingJob(run = false) {
-      const result = await post("/api/create-training-job", {
-        character_name: $("train_character_name").value,
-        model_name: $("train_model_name").value,
-        sample_dir: $("sample_dir").value,
-        epochs: $("epochs").value
-      });
-      setJob(result.job_path);
-      if (run) await runJob();
-    }
-
-    async function runJob() {
-      const data = await post("/api/run-job", {
-        job_path: $("job_path").value,
-        dry_run: $("dry_run").checked,
-        no_resume: $("no_resume").checked
-      });
-      $("runner").textContent = data.message;
-      setFriendlyStatus(data.message);
-      setTimeout(refreshStatus, 700);
     }
 
     async function openOutput() {
       await api(`/api/open-output?job_path=${encodeURIComponent($("job_path").value)}`);
     }
 
+    $("voice_select").addEventListener("change", updateVoiceHint);
     $("job_select").addEventListener("change", () => setJob($("job_select").value));
     $("job_path").addEventListener("change", refreshStatus);
-    loadDefaults().then(() => Promise.all([loadJobs(), loadRuntime(), refreshStatus()])).catch(err => alert(err.message));
+    loadDefaults().then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), refreshStatus()])).catch(err => alert(err.message));
     setInterval(refreshStatus, 4000);
   </script>
 </body>

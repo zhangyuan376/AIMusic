@@ -23,7 +23,7 @@ WizardStyle=modern
 
 [Files]
 Source: "..\dist\AISingingVideo\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\singing_app\*"; DestDir: "{app}\singing_app"; Excludes: "projects\*,__pycache__\*,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\singing_app\*"; DestDir: "{app}\singing_app"; Excludes: "projects\*,voice_library.json,__pycache__\*,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\tools\ApplioV3.6.2\*"; DestDir: "{app}\tools\ApplioV3.6.2"; Excludes: "__pycache__\*,*.pyc,logs\*,*.log,tests\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\voice_pipeline\Generated_image*.png"; DestDir: "{app}\voice_pipeline"; Flags: ignoreversion
 Source: "..\voice_pipeline\models\pomao_clear_voice_10e_1350s.pth"; DestDir: "{app}\voice_pipeline\models"; Flags: ignoreversion
