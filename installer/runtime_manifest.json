@@ -1,0 +1,41 @@
+{
+  "app": {
+    "exe": "AISingingVideo.exe",
+    "entry": "singing_app.main",
+    "ui_command": "python -m singing_app.main ui"
+  },
+  "runtime": {
+    "applio_root": "tools/ApplioV3.6.2",
+    "python": "tools/ApplioV3.6.2/env/python.exe",
+    "ffmpeg": "tools/ApplioV3.6.2/ffmpeg.exe",
+    "applio_core": "tools/ApplioV3.6.2/core.py"
+  },
+  "required_python_modules": [
+    "demucs",
+    "edge_tts"
+  ],
+  "default_assets": [
+    "voice_pipeline/Generated_image.png",
+    "voice_pipeline/Generated_image1.png",
+    "voice_pipeline/Generated_image2.png",
+    "voice_pipeline/Generated_image3.png"
+  ],
+  "default_models": [
+    "voice_pipeline/models/pomao_clear_voice_10e_1350s.pth",
+    "voice_pipeline/models/pomao_clear_voice.index"
+  ],
+  "default_jobs": [
+    "singing_app/jobs/pomao_demo_job.json",
+    "singing_app/jobs/new_character_voice_job.json"
+  ],
+  "excluded_from_installer": [
+    "voice_pipeline/output",
+    "voice_pipeline/separated",
+    "voice_pipeline/input_song",
+    "voice_pipeline/samples*",
+    "tools/ApplioV3.6.2/logs",
+    "*.7z",
+    "*.zip"
+  ]
+}
+

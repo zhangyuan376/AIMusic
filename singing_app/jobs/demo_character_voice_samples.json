@@ -1,0 +1,28 @@
+{
+  "job_id": "demo_character_voice_samples",
+  "output_dir": "D:\\further\\IP\\singing_app\\projects\\demo_character_voice_samples",
+  "steps": [
+    "check_runtime",
+    "create_character",
+    "generate_training_text",
+    "generate_voice_samples",
+    "export_result"
+  ],
+  "inputs": {
+    "character": {
+      "id": "demo_character",
+      "name": "Demo Character",
+      "root_dir": "D:\\further\\IP\\singing_app\\projects\\demo_character_voice_samples\\character",
+      "voice_description": "小只、安静、略带鼻音和一点点沙哑，但吐字要清楚",
+      "image_path": "D:\\further\\IP\\voice_pipeline\\Generated_image.png",
+      "mouth_shape_paths": [
+        "D:\\further\\IP\\voice_pipeline\\Generated_image.png"
+      ]
+    },
+    "voice": {
+      "model_name": "demo_character_voice",
+      "tts_voice": "zh-CN-YunxiNeural"
+    }
+  },
+  "settings": {}
+}

@@ -1,0 +1,17 @@
+{
+  "job_id": "demo_character_train_demo_character_voice",
+  "output_dir": "D:\\further\\IP\\singing_app\\projects\\demo_character_train_demo_character_voice",
+  "steps": [
+    "check_runtime",
+    "train_voice_model",
+    "export_result"
+  ],
+  "inputs": {
+    "voice": {
+      "model_name": "demo_character_voice",
+      "dataset_path": "D:\\further\\IP\\singing_app\\projects\\demo_character_voice_samples\\character\\voice\\samples",
+      "epochs": 5
+    }
+  },
+  "settings": {}
+}

@@ -1,0 +1,59 @@
+{
+  "job_id": "new_character_voice_demo",
+  "output_dir": "d:\\further\\IP\\singing_app\\projects\\new_character_voice_demo",
+  "steps": [
+    "check_runtime",
+    "create_character",
+    "generate_training_text",
+    "generate_voice_samples",
+    "import_voice_model",
+    "trim_song",
+    "separate_vocals",
+    "convert_vocals",
+    "mix_audio",
+    "compose_video",
+    "export_result"
+  ],
+  "inputs": {
+    "character": {
+      "id": "demo_character",
+      "name": "Demo Character",
+      "root_dir": "d:\\further\\IP\\singing_app\\projects\\new_character_voice_demo\\character",
+      "voice_description": "小只、安静、略带鼻音和一点点沙哑，但吐字要清楚",
+      "image_path": "d:\\further\\IP\\voice_pipeline\\Generated_image.png",
+      "mouth_shape_paths": [
+        "d:\\further\\IP\\voice_pipeline\\Generated_image.png",
+        "d:\\further\\IP\\voice_pipeline\\Generated_image1.png",
+        "d:\\further\\IP\\voice_pipeline\\Generated_image2.png",
+        "d:\\further\\IP\\voice_pipeline\\Generated_image3.png"
+      ]
+    },
+    "voice": {
+      "model_name": "demo_character_voice",
+      "tts_voice": "zh-CN-YunxiNeural",
+      "model_path": "d:\\further\\IP\\voice_pipeline\\models\\pomao_clear_voice_10e_1350s.pth",
+      "index_path": "d:\\further\\IP\\voice_pipeline\\models\\pomao_clear_voice.index",
+      "notes": "Demo job imports Pomao model after sample generation to avoid slow training in the smoke test."
+    },
+    "song": {
+      "path": "d:\\further\\IP\\voice_pipeline\\input_song\\cancel_send_20s_30s_test.wav",
+      "start_seconds": 0,
+      "duration_seconds": 30
+    },
+    "video": {
+      "character_image": "d:\\further\\IP\\voice_pipeline\\Generated_image.png"
+    }
+  },
+  "settings": {
+    "rvc": {
+      "pitch": 0,
+      "index_rate": 0.25,
+      "protect": 0.45
+    },
+    "mix": {
+      "instrumental_volume": 0.88,
+      "vocal_volume": 1.12
+    }
+  }
+}
+

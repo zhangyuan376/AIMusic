@@ -1,0 +1,104 @@
+# Installer Plan
+
+The application should install everything needed for a non-technical user to run the full workflow.
+
+## First Version: Offline Full Installer
+
+Ship a large but self-contained Windows installer:
+
+- desktop app files
+- `AISingingVideo.exe`
+- bundled Python runtime
+- bundled Applio runtime
+- bundled Demucs and Edge TTS Python packages
+- bundled FFmpeg
+- default Pomao example model
+- default character images
+
+The installed app must not depend on system `PATH`.
+
+Expected installed layout:
+
+```text
+AISingingVideo/
+  AISingingVideo.exe
+  check_singing_app_runtime.bat
+  tools/
+    ApplioV3.6.2/
+      env/python.exe
+      ffmpeg.exe
+      core.py
+      ...
+  voice_pipeline/
+    Generated_image.png
+    Generated_image1.png
+    Generated_image2.png
+    Generated_image3.png
+    models/
+      pomao_clear_voice_10e_1350s.pth
+      pomao_clear_voice.index
+  singing_app/
+    jobs/
+    projects/
+```
+
+The frozen exe resolves the app root from its own folder, so `tools/`, `voice_pipeline/`, and `singing_app/` should be placed beside the exe.
+
+## Runtime Check
+
+After install and on first launch, run:
+
+```powershell
+python -m singing_app.main check-runtime
+```
+
+The UI also exposes the same checks in the `Runtime Check` tab.
+
+Required checks:
+
+- Applio Python exists
+- Applio `core.py` exists
+- FFmpeg exists
+- `demucs` imports successfully
+- `edge_tts` imports successfully
+- default `.pth` model exists
+- default `.index` file exists
+- default character image exists
+
+## Build Commands
+
+Build the small UI exe:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_pyinstaller.ps1
+```
+
+Prepare an offline staging folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_offline_staging.ps1
+```
+
+Prepare staging without copying the large runtime, useful for quick validation:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_offline_staging.ps1 -SkipRuntime
+```
+
+Build the Inno Setup installer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_inno_installer.ps1
+```
+
+If Inno Setup is not installed, install Inno Setup 6 first or pass `-InnoCompiler`.
+
+## Future Lightweight Installer
+
+Later, split the installer into:
+
+- small app installer
+- first-launch runtime downloader
+- resumable runtime download and verification
+- one-click repair if files are missing
+

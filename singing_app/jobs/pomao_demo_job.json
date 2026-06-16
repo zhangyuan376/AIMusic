@@ -1,0 +1,41 @@
+{
+  "job_id": "pomao_demo",
+  "output_dir": "d:\\further\\IP\\singing_app\\projects\\pomao_demo",
+  "steps": [
+    "check_runtime",
+    "import_voice_model",
+    "trim_song",
+    "separate_vocals",
+    "convert_vocals",
+    "mix_audio",
+    "compose_video",
+    "export_result"
+  ],
+  "inputs": {
+    "voice": {
+      "character_name": "Pomao",
+      "model_path": "d:\\further\\IP\\voice_pipeline\\models\\pomao_clear_voice_10e_1350s.pth",
+      "index_path": "d:\\further\\IP\\voice_pipeline\\models\\pomao_clear_voice.index"
+    },
+    "song": {
+      "path": "d:\\further\\IP\\voice_pipeline\\input_song\\cancel_send_20s_30s_test.wav",
+      "start_seconds": 0,
+      "duration_seconds": 30
+    },
+    "video": {
+      "character_image": "d:\\further\\IP\\voice_pipeline\\Generated_image.png"
+    }
+  },
+  "settings": {
+    "rvc": {
+      "pitch": 0,
+      "index_rate": 0.25,
+      "protect": 0.45
+    },
+    "mix": {
+      "instrumental_volume": 0.88,
+      "vocal_volume": 1.12
+    }
+  }
+}
+

@@ -10,9 +10,15 @@ voice_pipeline/output/
 voice_pipeline/input_song/
 voice_pipeline/separated/
 voice_pipeline/auditions*/
+singing_app/projects/
+dist/
+dist_dev/
+offline_staging/
+installer_output/
 logs/
 *.pth
 *.index
+*.bin
 
 # Audio exports and copyrighted source material
 *.wav
