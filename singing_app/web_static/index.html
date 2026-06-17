@@ -22,6 +22,12 @@
     button.big { width: 100%; margin: 14px 0 0; padding: 16px; font-size: 18px; }
     .path-picker { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
     .path-picker button { margin: 0; white-space: nowrap; background: #30384a; }
+    .audio-preview { margin-top: 12px; padding: 12px; border: 1px solid #30384a; border-radius: 12px; background: #101520; }
+    .audio-preview audio { width: 100%; margin-top: 8px; }
+    .result-audio, .result-video { margin: 10px 0 14px; padding: 12px; border: 1px solid #355442; border-radius: 12px; background: #0f1c18; }
+    .result-audio audio, .result-video video { width: 100%; margin-top: 8px; border-radius: 10px; background: #05070b; }
+    .waveform-wrap { margin-top: 10px; border: 1px solid #30384a; border-radius: 12px; background: #070a10; overflow: hidden; }
+    #song_waveform { display: block; width: 100%; height: 150px; cursor: crosshair; touch-action: none; }
     pre { overflow: auto; max-height: 260px; padding: 12px; border-radius: 10px; background: #0b0e14; border: 1px solid #2b3140; white-space: pre-wrap; }
     details { margin-top: 14px; padding: 12px; border: 1px solid #30384a; border-radius: 12px; background: #121722; }
     summary { cursor: pointer; color: #b9c6e4; font-weight: 700; }
@@ -45,7 +51,7 @@
 <body>
   <header>
     <h1>AI Singing Video</h1>
-    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 人声分离 -> 生成翻唱。</div>
+    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 人声分离 -> 生成翻唱音频 -> 生成 4K MV。</div>
   </header>
 
   <main>
@@ -54,7 +60,7 @@
         <div class="step"><b>1. 设计声线</b><span>输入角色风格，自动生成试听样本。</span></div>
         <div class="step"><b>2. 试听选择</b><span>听完保存喜欢的声线。</span></div>
         <div class="step"><b>3. 训练模型</b><span>历史声线训练后自动绑定。</span></div>
-        <div class="step"><b>4. 分离/生成</b><span>先分离人声，再生成翻唱视频。</span></div>
+        <div class="step"><b>4. 分离/生成</b><span>先分离人声，再生成翻唱音频和 4K MV。</span></div>
       </div>
 
       <h2>第 1 步：描述你想要的角色声线</h2>
@@ -98,23 +104,90 @@
 
     <section>
       <h2>第 4 步：单独做人声分离</h2>
+      <label>分离历史</label>
+      <div class="path-picker">
+        <select id="separation_select"></select>
+        <button type="button" onclick="loadSeparations()">刷新历史</button>
+      </div>
+      <button type="button" class="secondary" onclick="useSelectedSeparation()">使用这个分离结果</button>
+      <div id="separation_history_status" class="muted">分离完成后会自动保存到这里，下次可直接复用。</div>
+
       <label>音乐文件路径</label>
       <div class="path-picker">
         <input id="song_path" placeholder="点击右侧选择音乐文件">
         <button type="button" onclick="pickFile('song_path', 'audio')">选择音乐</button>
+      </div>
+      <div class="audio-preview">
+        <button type="button" class="secondary" onclick="loadAudioPreview()">加载音频并显示波形</button>
+        <button type="button" class="secondary" onclick="recommendChorusRange()">智能推荐高潮片段</button>
+        <button type="button" class="secondary" onclick="playSelectedRange()">播放选中片段</button>
+        <audio id="song_player" controls></audio>
+        <div class="waveform-wrap">
+          <canvas id="song_waveform"></canvas>
+        </div>
+        <div id="waveform_status" class="muted">选择音乐后点击“加载音频并显示波形”。可拖选区中间移动整段，拖左右边缘调整起止点。</div>
       </div>
       <div class="grid">
         <div><label>从第几秒开始</label><input id="start_seconds" type="number" value="0"></div>
         <div><label>截取多少秒</label><input id="duration_seconds" type="number" value="30"></div>
       </div>
       <button id="separate_button" class="big" onclick="separateVocals()">开始人声分离</button>
-      <div id="separation_status" class="muted">先把原唱分成人声和伴奏，完成后再生成翻唱视频。</div>
+      <div id="separation_status" class="muted">先把原唱分成人声和伴奏，完成后再生成翻唱音频。</div>
     </section>
 
     <section>
-      <h2>第 5 步：生成翻唱视频</h2>
-      <div class="muted">使用第 4 步分离出来的人声和伴奏，再套用第 3 步选中的声线生成视频。</div>
-      <button class="big" onclick="makeCover()">生成翻唱视频</button>
+      <h2>第 5 步：生成翻唱音频</h2>
+      <div class="muted">使用第 4 步分离出来的人声和伴奏，再套用第 3 步选中的声线生成翻唱音频。</div>
+      <label>历史翻唱</label>
+      <div class="path-picker">
+        <select id="cover_select"></select>
+        <button type="button" onclick="loadCovers()">刷新历史</button>
+      </div>
+      <button type="button" class="secondary" onclick="useSelectedCover()">使用这个翻唱音频</button>
+      <div id="cover_history_status" class="muted">生成完成后会自动保存到这里，下次可直接播放或复用。</div>
+      <button class="big" onclick="makeCover()">生成翻唱音频</button>
+      <div id="result_audio_panel" class="result-audio" style="display:none;">
+        <b>翻唱音频</b>
+        <audio id="result_audio_player" controls></audio>
+        <div id="result_audio_path" class="muted"></div>
+      </div>
+      <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
+    </section>
+
+    <section>
+      <h2>第 6 步：生成 4K 氛围 MV</h2>
+      <div class="muted">使用第 5 步当前或历史翻唱音频，合成 3840x2160 夜景氛围 MV。角色脚底会锁在地面前景，画面有慢推镜头和轻微左右摆动。</div>
+      <label>4K 背景图路径</label>
+      <div class="path-picker">
+        <input id="mv_background_image" placeholder="点击右侧选择 4K 背景图">
+        <button type="button" onclick="pickFile('mv_background_image', 'image')">选择背景图</button>
+      </div>
+      <label>角色图片路径</label>
+      <div class="path-picker">
+        <input id="mv_character_image" placeholder="默认使用第 1 步角色图片，也可重新选择">
+        <button type="button" onclick="pickFile('mv_character_image', 'image')">选择角色图</button>
+      </div>
+      <div class="grid">
+        <div><label>视频时长（秒）</label><input id="mv_duration_seconds" type="number" value="30"></div>
+        <div><label>输出规格</label><input value="3840 x 2160 / 30fps" disabled></div>
+      </div>
+      <details>
+        <summary>画面比例微调</summary>
+        <div class="grid">
+          <div><label>角色高度占画面比例</label><input id="mv_character_height_ratio" type="number" min="0.12" max="0.75" step="0.01" value="0.24"></div>
+          <div><label>角色水平位置</label><input id="mv_character_x_ratio" type="number" min="0.05" max="0.95" step="0.01" value="0.44"></div>
+        </div>
+        <label>角色离底部距离</label>
+        <input id="mv_ground_offset_ratio" type="number" min="0" max="0.35" step="0.005" value="0.16">
+        <div class="muted">参考夜景江边效果：角色高度 0.24、水平位置 0.44、离底部 0.16。脚底会锁定在地面反光区域，不再上下漂移。</div>
+      </details>
+      <button id="mv_button" class="big" onclick="makeMvVideo()">生成 4K 氛围 MV</button>
+      <div id="mv_status" class="muted">先完成或选择第 5 步翻唱音频，再生成视频。</div>
+      <div id="result_video_panel" class="result-video" style="display:none;">
+        <b>4K MV 视频</b>
+        <video id="result_video_player" controls></video>
+        <div id="result_video_path" class="muted"></div>
+      </div>
       <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
     </section>
 
@@ -148,11 +221,18 @@
     let selectedSample = null;
     let lastSampleDir = "";
     let voices = [];
+    let separations = [];
+    let covers = [];
     let progressTimer = null;
     let activeTask = "";
     let trainingVoiceId = "";
+    let currentCoverAudioPath = "";
     let separationJobPath = "";
     let separationReady = false;
+    let songAudioBuffer = null;
+    let waveformSelection = { start: 0, end: 30, dragging: false, mode: "", anchor: 0, dragStart: 0, originalStart: 0, originalEnd: 30 };
+    let selectedPlaybackStopper = null;
+    let playheadFrame = null;
 
     async function api(path, options = {}) {
       const res = await fetch(path, options);
@@ -198,6 +278,16 @@
       $("separation_status").className = bad ? "bad" : "muted";
     }
 
+    function waveformStatus(text, bad = false) {
+      $("waveform_status").textContent = text;
+      $("waveform_status").className = bad ? "bad" : "muted";
+    }
+
+    function videoStatus(text, bad = false) {
+      $("mv_status").textContent = text;
+      $("mv_status").className = bad ? "bad" : "muted";
+    }
+
     function setButtonBusy(id, busy, text, idleText) {
       const button = $(id);
       button.disabled = busy;
@@ -225,6 +315,355 @@
       $("job_path").value = path;
       loadJobs();
       refreshStatus();
+    }
+
+    function songFileUrl() {
+      const path = $("song_path").value.trim();
+      if (!path) throw new Error("请先选择音乐文件。");
+      return `/api/file?path=${encodeURIComponent(path)}`;
+    }
+
+    async function loadAudioPreview() {
+      try {
+        const url = songFileUrl();
+        $("song_player").src = url;
+        $("song_player").load();
+        waveformStatus("正在读取音频并绘制时域波形...");
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`读取音频失败：${res.statusText}`);
+        const arrayBuffer = await res.arrayBuffer();
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) throw new Error("当前浏览器不支持音频波形解析。");
+        const audioContext = new AudioContextClass();
+        songAudioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        await audioContext.close();
+        const currentStart = Number($("start_seconds").value) || 0;
+        const currentDuration = Number($("duration_seconds").value) || Math.min(30, songAudioBuffer.duration);
+        setWaveSelection(currentStart, currentStart + currentDuration, true);
+        drawWaveform();
+        waveformStatus(`已加载：总时长 ${formatTime(songAudioBuffer.duration)}。拖选区中间可移动，拖左右边缘可拉伸。`);
+      } catch (err) {
+        songAudioBuffer = null;
+        drawWaveform();
+        waveformStatus(err.message, true);
+        alert(err.message);
+      }
+    }
+
+    function drawWaveform() {
+      const canvas = $("song_waveform");
+      const rect = canvas.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(rect.width * scale));
+      const height = Math.max(1, Math.floor(rect.height * scale));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#070a10";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#2d3750";
+      ctx.beginPath();
+      ctx.moveTo(0, height / 2);
+      ctx.lineTo(width, height / 2);
+      ctx.stroke();
+      if (!songAudioBuffer) return;
+
+      const data = songAudioBuffer.getChannelData(0);
+      const samplesPerPixel = Math.max(1, Math.floor(data.length / width));
+      ctx.strokeStyle = "#91adff";
+      ctx.beginPath();
+      for (let x = 0; x < width; x += 1) {
+        const start = x * samplesPerPixel;
+        let min = 1;
+        let max = -1;
+        for (let i = 0; i < samplesPerPixel && start + i < data.length; i += 1) {
+          const value = data[start + i];
+          if (value < min) min = value;
+          if (value > max) max = value;
+        }
+        ctx.moveTo(x, ((1 - max) * height) / 2);
+        ctx.lineTo(x, ((1 - min) * height) / 2);
+      }
+      ctx.stroke();
+
+      const x1 = (waveformSelection.start / songAudioBuffer.duration) * width;
+      const x2 = (waveformSelection.end / songAudioBuffer.duration) * width;
+      ctx.fillStyle = "rgba(116, 217, 159, 0.22)";
+      ctx.fillRect(Math.min(x1, x2), 0, Math.abs(x2 - x1), height);
+      ctx.strokeStyle = "#74d99f";
+      ctx.lineWidth = 2 * scale;
+      ctx.strokeRect(Math.min(x1, x2), 1, Math.abs(x2 - x1), height - 2);
+      drawSelectionHandles(ctx, x1, x2, height, scale);
+
+      drawPlayhead(ctx, width, height, scale);
+    }
+
+    function drawSelectionHandles(ctx, x1, x2, height, scale) {
+      const handleWidth = 8 * scale;
+      const left = Math.min(x1, x2);
+      const right = Math.max(x1, x2);
+      ctx.save();
+      ctx.fillStyle = "#74d99f";
+      ctx.fillRect(left - handleWidth / 2, 0, handleWidth, height);
+      ctx.fillRect(right - handleWidth / 2, 0, handleWidth, height);
+      ctx.fillStyle = "#0b0e14";
+      ctx.fillRect(left - 1 * scale, 12 * scale, 2 * scale, height - 24 * scale);
+      ctx.fillRect(right - 1 * scale, 12 * scale, 2 * scale, height - 24 * scale);
+      ctx.restore();
+    }
+
+    function drawPlayhead(ctx, width, height, scale) {
+      const player = $("song_player");
+      const current = Math.max(0, Math.min(songAudioBuffer.duration, Number(player.currentTime) || 0));
+      const x = (current / songAudioBuffer.duration) * width;
+      ctx.save();
+      ctx.strokeStyle = "#ffb86b";
+      ctx.fillStyle = "#ffb86b";
+      ctx.lineWidth = 2 * scale;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x - 5 * scale, 9 * scale);
+      ctx.lineTo(x + 5 * scale, 9 * scale);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = `${11 * scale}px Segoe UI, Arial, sans-serif`;
+      const label = formatTime(current);
+      const labelX = Math.min(width - 48 * scale, Math.max(4 * scale, x + 6 * scale));
+      ctx.fillText(label, labelX, 18 * scale);
+      ctx.restore();
+    }
+
+    function setWaveSelection(start, end, updateInputs = true) {
+      if (!songAudioBuffer) return;
+      const duration = songAudioBuffer.duration;
+      const safeStart = Math.max(0, Math.min(duration, start));
+      const safeEnd = Math.max(0, Math.min(duration, end));
+      waveformSelection.start = Math.min(safeStart, safeEnd);
+      waveformSelection.end = Math.max(safeStart, safeEnd);
+      if (waveformSelection.end - waveformSelection.start < 0.1) {
+        waveformSelection.end = Math.min(duration, waveformSelection.start + 0.1);
+      }
+      if (updateInputs) {
+        $("start_seconds").value = waveformSelection.start.toFixed(2);
+        $("duration_seconds").value = (waveformSelection.end - waveformSelection.start).toFixed(2);
+        invalidateSeparation();
+      }
+      waveformStatus(`已选择 ${formatTime(waveformSelection.start)} - ${formatTime(waveformSelection.end)}，时长 ${formatTime(waveformSelection.end - waveformSelection.start)}。`);
+      drawWaveform();
+    }
+
+    function timeFromWaveEvent(event) {
+      if (!songAudioBuffer) return 0;
+      const rect = $("song_waveform").getBoundingClientRect();
+      const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+      return (x / rect.width) * songAudioBuffer.duration;
+    }
+
+    function selectionModeFromEvent(event) {
+      if (!songAudioBuffer) return "new";
+      const rect = $("song_waveform").getBoundingClientRect();
+      const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+      const startX = (waveformSelection.start / songAudioBuffer.duration) * rect.width;
+      const endX = (waveformSelection.end / songAudioBuffer.duration) * rect.width;
+      const left = Math.min(startX, endX);
+      const right = Math.max(startX, endX);
+      const handlePx = 12;
+      if (Math.abs(x - left) <= handlePx) return "resize-left";
+      if (Math.abs(x - right) <= handlePx) return "resize-right";
+      if (x > left && x < right) return "move";
+      return "new";
+    }
+
+    function updateWaveformCursor(event) {
+      if (!songAudioBuffer || waveformSelection.dragging) return;
+      const mode = selectionModeFromEvent(event);
+      const canvas = $("song_waveform");
+      if (mode === "resize-left" || mode === "resize-right") {
+        canvas.style.cursor = "ew-resize";
+      } else if (mode === "move") {
+        canvas.style.cursor = "grab";
+      } else {
+        canvas.style.cursor = "crosshair";
+      }
+    }
+
+    function startWaveSelection(event) {
+      if (!songAudioBuffer) return;
+      const time = timeFromWaveEvent(event);
+      const mode = selectionModeFromEvent(event);
+      waveformSelection.dragging = true;
+      waveformSelection.mode = mode;
+      waveformSelection.anchor = time;
+      waveformSelection.dragStart = time;
+      waveformSelection.originalStart = waveformSelection.start;
+      waveformSelection.originalEnd = waveformSelection.end;
+      $("song_waveform").style.cursor = mode === "move" ? "grabbing" : (mode.startsWith("resize") ? "ew-resize" : "crosshair");
+      if (mode === "new") {
+        setWaveSelection(time, time);
+      }
+      $("song_waveform").setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    }
+
+    function dragWaveSelection(event) {
+      if (!songAudioBuffer || !waveformSelection.dragging) return;
+      const time = timeFromWaveEvent(event);
+      if (waveformSelection.mode === "resize-left") {
+        setWaveSelection(time, waveformSelection.originalEnd);
+      } else if (waveformSelection.mode === "resize-right") {
+        setWaveSelection(waveformSelection.originalStart, time);
+      } else if (waveformSelection.mode === "move") {
+        const span = waveformSelection.originalEnd - waveformSelection.originalStart;
+        const delta = time - waveformSelection.dragStart;
+        const start = Math.max(0, Math.min(songAudioBuffer.duration - span, waveformSelection.originalStart + delta));
+        setWaveSelection(start, start + span);
+      } else {
+        setWaveSelection(waveformSelection.anchor, time);
+      }
+      event.preventDefault();
+    }
+
+    function finishWaveSelection() {
+      waveformSelection.dragging = false;
+      waveformSelection.mode = "";
+      $("song_waveform").style.cursor = "crosshair";
+    }
+
+    function leaveWaveform() {
+      if (!waveformSelection.dragging) {
+        $("song_waveform").style.cursor = "crosshair";
+      }
+    }
+
+    function syncWaveSelectionFromInputs() {
+      if (!songAudioBuffer) return;
+      const start = Number($("start_seconds").value) || 0;
+      const duration = Number($("duration_seconds").value) || 0;
+      setWaveSelection(start, start + duration, false);
+      invalidateSeparation();
+    }
+
+    async function recommendChorusRange() {
+      if (!songAudioBuffer) await loadAudioPreview();
+      if (!songAudioBuffer) return;
+      const recommended = findHighEnergyRange(songAudioBuffer, Number($("duration_seconds").value) || 30);
+      setWaveSelection(recommended.start, recommended.end, true);
+      waveformStatus(`已推荐最像高潮的片段：${formatTime(recommended.start)} - ${formatTime(recommended.end)}。建议先播放确认。`);
+    }
+
+    function findHighEnergyRange(audioBuffer, requestedDuration) {
+      const channel = audioBuffer.getChannelData(0);
+      const totalDuration = audioBuffer.duration;
+      const frameSeconds = 0.25;
+      const frameSize = Math.max(1, Math.floor(audioBuffer.sampleRate * frameSeconds));
+      const frameCount = Math.max(1, Math.ceil(channel.length / frameSize));
+      const energies = new Array(frameCount).fill(0);
+
+      for (let frame = 0; frame < frameCount; frame += 1) {
+        const start = frame * frameSize;
+        const end = Math.min(channel.length, start + frameSize);
+        let sumSquares = 0;
+        let peak = 0;
+        for (let i = start; i < end; i += 1) {
+          const value = channel[i];
+          sumSquares += value * value;
+          peak = Math.max(peak, Math.abs(value));
+        }
+        const rms = Math.sqrt(sumSquares / Math.max(1, end - start));
+        energies[frame] = rms * 0.85 + peak * 0.15;
+      }
+
+      const duration = Math.max(8, Math.min(totalDuration, requestedDuration || 30));
+      const windowFrames = Math.max(1, Math.round(duration / frameSeconds));
+      const introFrames = Math.min(Math.round(8 / frameSeconds), Math.floor(frameCount * 0.12));
+      const outroFrames = Math.min(Math.round(8 / frameSeconds), Math.floor(frameCount * 0.08));
+      let bestFrame = 0;
+      let bestScore = -Infinity;
+
+      for (let frame = 0; frame <= frameCount - windowFrames; frame += 1) {
+        let score = 0;
+        let localPeak = 0;
+        for (let offset = 0; offset < windowFrames; offset += 1) {
+          const energy = energies[frame + offset];
+          score += energy;
+          localPeak = Math.max(localPeak, energy);
+        }
+        score = score / windowFrames + localPeak * 0.18;
+        if (frame < introFrames) score *= 0.86;
+        if (frame + windowFrames > frameCount - outroFrames) score *= 0.9;
+        if (score > bestScore) {
+          bestScore = score;
+          bestFrame = frame;
+        }
+      }
+
+      const start = Math.min(Math.max(0, bestFrame * frameSeconds), Math.max(0, totalDuration - duration));
+      return { start, end: Math.min(totalDuration, start + duration) };
+    }
+
+    async function playSelectedRange() {
+      if (!songAudioBuffer) await loadAudioPreview();
+      if (!songAudioBuffer) return;
+      const player = $("song_player");
+      player.currentTime = waveformSelection.start;
+      if (selectedPlaybackStopper) {
+        player.removeEventListener("timeupdate", selectedPlaybackStopper);
+      }
+      selectedPlaybackStopper = () => {
+        if (player.currentTime >= waveformSelection.end) {
+          player.pause();
+          player.removeEventListener("timeupdate", selectedPlaybackStopper);
+          selectedPlaybackStopper = null;
+        }
+      };
+      player.addEventListener("timeupdate", selectedPlaybackStopper);
+      await player.play();
+      startPlayheadTracking();
+    }
+
+    function startPlayheadTracking() {
+      if (playheadFrame) return;
+      const tick = () => {
+        drawWaveform();
+        if (!$("song_player").paused) {
+          playheadFrame = requestAnimationFrame(tick);
+        } else {
+          playheadFrame = null;
+        }
+      };
+      playheadFrame = requestAnimationFrame(tick);
+    }
+
+    function stopPlayheadTracking() {
+      if (playheadFrame) {
+        cancelAnimationFrame(playheadFrame);
+        playheadFrame = null;
+      }
+      drawWaveform();
+    }
+
+    function resetAudioPreview() {
+      songAudioBuffer = null;
+      waveformSelection = { start: 0, end: Number($("duration_seconds").value) || 30, dragging: false, mode: "", anchor: 0, dragStart: 0, originalStart: 0, originalEnd: Number($("duration_seconds").value) || 30 };
+      stopPlayheadTracking();
+      $("song_player").removeAttribute("src");
+      $("song_player").load();
+      waveformStatus("音乐已变化，请重新加载波形。");
+      drawWaveform();
+    }
+
+    function formatTime(seconds) {
+      const value = Math.max(0, Number(seconds) || 0);
+      const minutes = Math.floor(value / 60);
+      const secs = value - minutes * 60;
+      return `${minutes}:${secs.toFixed(2).padStart(5, "0")}`;
     }
 
     async function loadDefaults() {
@@ -274,6 +713,107 @@
         select.value = previous;
       }
       updateVoiceHint();
+    }
+
+    async function loadSeparations(preferredSeparationId = "") {
+      const data = await api("/api/separations");
+      const previous = preferredSeparationId || $("separation_select").value;
+      separations = data.separations;
+      const select = $("separation_select");
+      select.innerHTML = "";
+      if (!separations.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "暂无分离历史";
+        select.appendChild(option);
+      }
+      for (const item of separations) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = `${item.label || item.id}${item.ready ? "" : "（文件缺失）"}`;
+        select.appendChild(option);
+      }
+      if (previous && separations.some(item => item.id === previous)) {
+        select.value = previous;
+      }
+      updateSeparationHint();
+    }
+
+    function updateSeparationHint() {
+      const item = separations.find(entry => entry.id === $("separation_select").value);
+      $("separation_history_status").textContent = item
+        ? `${item.ready ? "可直接复用" : "文件缺失"}：${item.song_path}`
+        : "分离完成后会自动保存到这里，下次可直接复用。";
+      $("separation_history_status").className = item && !item.ready ? "bad" : "muted";
+    }
+
+    function useSelectedSeparation() {
+      const item = separations.find(entry => entry.id === $("separation_select").value);
+      if (!item) {
+        alert("暂无可用分离历史。");
+        return;
+      }
+      if (!item.ready) {
+        alert("这条历史记录的人声或伴奏文件不存在，请重新做人声分离。");
+        return;
+      }
+      $("song_path").value = item.song_path;
+      $("start_seconds").value = Number(item.start_seconds || 0).toFixed(2);
+      $("duration_seconds").value = Number(item.duration_seconds || 30).toFixed(2);
+      separationJobPath = item.job_path;
+      separationReady = true;
+      resetAudioPreview();
+      separationStatus("已使用历史分离结果，可以直接进入第 5 步生成翻唱音频。");
+      setProgress(`已选用分离历史：${item.label || item.id}`, false);
+    }
+
+    async function loadCovers(preferredCoverId = "") {
+      const data = await api("/api/covers");
+      const previous = preferredCoverId || $("cover_select").value;
+      covers = data.covers;
+      const select = $("cover_select");
+      select.innerHTML = "";
+      if (!covers.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "暂无翻唱历史";
+        select.appendChild(option);
+      }
+      for (const item of covers) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = `${item.label || item.id}${item.ready ? "" : "（文件缺失）"}`;
+        select.appendChild(option);
+      }
+      if (previous && covers.some(item => item.id === previous)) {
+        select.value = previous;
+      }
+      updateCoverHint();
+    }
+
+    function updateCoverHint() {
+      const item = covers.find(entry => entry.id === $("cover_select").value);
+      $("cover_history_status").textContent = item
+        ? `${item.ready ? "可直接播放/复用" : "文件缺失"}：${item.audio_path}`
+        : "生成完成后会自动保存到这里，下次可直接播放或复用。";
+      $("cover_history_status").className = item && !item.ready ? "bad" : "muted";
+    }
+
+    function useSelectedCover() {
+      const item = covers.find(entry => entry.id === $("cover_select").value);
+      if (!item) {
+        alert("暂无可用翻唱历史。");
+        return;
+      }
+      if (!item.ready) {
+        alert("这条历史翻唱音频文件不存在，请重新生成。");
+        return;
+      }
+      renderResultAudio({ result_audio: item.audio_path });
+      $("job_path").value = item.job_path || $("job_path").value;
+      setProgress(`已选用历史翻唱：${item.label || item.id}`, false);
+      $("cover_history_status").textContent = `正在使用：${item.audio_path}`;
+      $("cover_history_status").className = "muted";
     }
 
     function updateVoiceHint() {
@@ -378,22 +918,56 @@
       try {
         const voice = voices.find(v => v.id === $("voice_select").value);
         if (!voice) throw new Error("请先选择一个历史声线。");
-        if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先训练或导入 .pth/.index。");
-        if (!separationReady || !separationJobPath) throw new Error("请先完成第 4 步人声分离，再生成翻唱视频。");
-        const result = await post("/api/create-video-job", {
+        if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先训练。");
+        if (!separationReady || !separationJobPath) throw new Error("请先完成第 4 步人声分离，再生成翻唱音频。");
+        const result = await post("/api/create-audio-cover-job", {
           character_name: voice.name,
           voice_description: voice.description,
           voice_id: voice.id,
           song_path: $("song_path").value,
-          character_image: $("voice_character_image").value,
           start_seconds: $("start_seconds").value,
           duration_seconds: $("duration_seconds").value,
           separation_job_path: separationJobPath,
           dry_run: $("dry_run").checked
         });
         setJob(result.job_path);
+        startProgressPolling("cover");
         await runJob(true);
       } catch (err) {
+        stopProgressPolling();
+        status(err.message, true);
+        alert(err.message);
+      }
+    }
+
+    async function makeMvVideo() {
+      try {
+        const audioPath = currentCoverAudioPath || $("result_audio_path").textContent.trim();
+        if (!audioPath) throw new Error("请先完成或选择第 5 步翻唱音频。");
+        const characterImage = $("mv_character_image").value.trim() || $("voice_character_image").value.trim();
+        if (!characterImage) throw new Error("请先选择角色图片。");
+        setButtonBusy("mv_button", true, "正在生成 4K MV...", "生成 4K 氛围 MV");
+        setProgress("正在创建 4K MV 视频任务...", true);
+        videoStatus("正在创建视频任务。4K 合成会比音频慢一些。");
+        const result = await post("/api/create-mv-video-job", {
+          character_name: $("voice_character_name").value || "pomao",
+          audio_path: audioPath,
+          character_image: characterImage,
+          background_image: $("mv_background_image").value,
+          duration_seconds: $("mv_duration_seconds").value || $("duration_seconds").value || 30,
+          character_height_ratio: $("mv_character_height_ratio").value || 0.24,
+          character_x_ratio: $("mv_character_x_ratio").value || 0.44,
+          ground_offset_ratio: $("mv_ground_offset_ratio").value || 0.16,
+          dry_run: $("dry_run").checked
+        });
+        setJob(result.job_path);
+        startProgressPolling("mv");
+        await runJob(true);
+      } catch (err) {
+        stopProgressPolling();
+        setButtonBusy("mv_button", false, "", "生成 4K 氛围 MV");
+        setProgress(err.message, false, true);
+        videoStatus(err.message, true);
         status(err.message, true);
         alert(err.message);
       }
@@ -414,7 +988,7 @@
         setJob(result.job_path);
         startProgressPolling("separation");
         await runJob(true);
-        separationStatus("人声分离任务已启动。完成后会自动用于下一步生成翻唱视频。");
+        separationStatus("人声分离任务已启动。完成后会自动用于下一步生成翻唱音频。");
       } catch (err) {
         stopProgressPolling();
         setButtonBusy("separate_button", false, "", "开始人声分离");
@@ -496,6 +1070,8 @@
       $("runner").textContent = summarizeRunner(data);
       $("state").textContent = JSON.stringify(data.state, null, 2);
       $("artifacts").textContent = summarizeArtifacts(data.artifacts);
+      renderResultAudio(data.artifacts);
+      renderResultVideo(data.artifacts);
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
       if (data.runner && data.runner.running) {
         status("任务正在运行，请等待。");
@@ -523,7 +1099,17 @@
             setButtonBusy("separate_button", false, "", "开始人声分离");
             separationReady = true;
             separationJobPath = $("job_path").value;
-            separationStatus("人声分离已完成，可以进入第 5 步生成翻唱视频。");
+            separationStatus("人声分离已完成并保存到历史，可以进入第 5 步生成翻唱音频。");
+            loadSeparations().catch(() => {});
+          }
+          if (activeTask === "cover") {
+            loadCovers().catch(() => {});
+            setProgress("翻唱音频已完成并保存到历史，可以直接播放。", false);
+          }
+          if (activeTask === "mv") {
+            setButtonBusy("mv_button", false, "", "生成 4K 氛围 MV");
+            videoStatus("4K MV 已生成，可以在下方播放或打开结果文件夹。");
+            setProgress("4K MV 已完成。", false);
           }
           stopProgressPolling();
         }
@@ -532,6 +1118,7 @@
           setButtonBusy("audition_button", false, "", "生成试听声线");
           setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
           setButtonBusy("separate_button", false, "", "开始人声分离");
+          setButtonBusy("mv_button", false, "", "生成 4K 氛围 MV");
           stopProgressPolling();
         }
       }
@@ -541,6 +1128,8 @@
       if (task === "audition") return "试听声线";
       if (task === "training") return "声线训练";
       if (task === "separation") return "人声分离";
+      if (task === "cover") return "翻唱音频";
+      if (task === "mv") return "4K MV";
       return "任务";
     }
 
@@ -571,23 +1160,79 @@
       ].filter(Boolean).join("\n") || JSON.stringify(artifacts, null, 2);
     }
 
+    function renderResultAudio(artifacts) {
+      const audioPath = artifacts && (artifacts.result_audio || artifacts.final_mix || "");
+      const panel = $("result_audio_panel");
+      const player = $("result_audio_player");
+      if (!audioPath) {
+        currentCoverAudioPath = currentCoverAudioPath || "";
+        panel.style.display = "none";
+        player.removeAttribute("src");
+        return;
+      }
+      currentCoverAudioPath = audioPath;
+      const src = `/api/file?path=${encodeURIComponent(audioPath)}`;
+      if (player.getAttribute("src") !== src) {
+        player.src = src;
+        player.load();
+      }
+      $("result_audio_path").textContent = audioPath;
+      panel.style.display = "block";
+    }
+
+    function renderResultVideo(artifacts) {
+      const videoPath = artifacts && (artifacts.result_video || artifacts.final_video || "");
+      const panel = $("result_video_panel");
+      const player = $("result_video_player");
+      if (!videoPath) {
+        panel.style.display = "none";
+        player.removeAttribute("src");
+        return;
+      }
+      const src = `/api/file?path=${encodeURIComponent(videoPath)}`;
+      if (player.getAttribute("src") !== src) {
+        player.src = src;
+        player.load();
+      }
+      $("result_video_path").textContent = videoPath;
+      panel.style.display = "block";
+    }
+
     async function openOutput() {
       await api(`/api/open-output?job_path=${encodeURIComponent($("job_path").value)}`);
     }
 
     $("voice_select").addEventListener("change", updateVoiceHint);
+    $("separation_select").addEventListener("change", updateSeparationHint);
+    $("cover_select").addEventListener("change", updateCoverHint);
     $("job_select").addEventListener("change", () => setJob($("job_select").value));
     $("job_path").addEventListener("change", refreshStatus);
-    $("song_path").addEventListener("input", invalidateSeparation);
-    $("start_seconds").addEventListener("input", invalidateSeparation);
-    $("duration_seconds").addEventListener("input", invalidateSeparation);
+    $("song_path").addEventListener("input", () => {
+      invalidateSeparation();
+      resetAudioPreview();
+    });
+    $("start_seconds").addEventListener("input", syncWaveSelectionFromInputs);
+    $("duration_seconds").addEventListener("input", syncWaveSelectionFromInputs);
+    $("song_waveform").addEventListener("pointerdown", startWaveSelection);
+    $("song_waveform").addEventListener("pointermove", dragWaveSelection);
+    $("song_waveform").addEventListener("pointermove", updateWaveformCursor);
+    $("song_waveform").addEventListener("pointerup", finishWaveSelection);
+    $("song_waveform").addEventListener("pointercancel", finishWaveSelection);
+    $("song_waveform").addEventListener("pointerleave", leaveWaveform);
+    $("song_player").addEventListener("play", startPlayheadTracking);
+    $("song_player").addEventListener("pause", stopPlayheadTracking);
+    $("song_player").addEventListener("ended", stopPlayheadTracking);
+    $("song_player").addEventListener("timeupdate", drawWaveform);
+    $("song_player").addEventListener("seeked", drawWaveform);
+    $("song_player").addEventListener("loadedmetadata", drawWaveform);
+    window.addEventListener("resize", drawWaveform);
     window.addEventListener("error", (event) => {
       const message = event.message || "页面脚本出错，请刷新页面。";
       status(message, true);
       auditionStatus(message, true);
     });
     loadDefaults()
-      .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), refreshStatus()]))
+      .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), loadSeparations(), loadCovers(), refreshStatus()]))
       .catch(err => {
         status(err.message, true);
         auditionStatus(err.message, true);

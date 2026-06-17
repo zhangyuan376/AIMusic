@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -41,6 +42,7 @@ class HarnessRunner:
             "convert_vocals": self.convert_vocals,
             "mix_audio": self.mix_audio,
             "compose_video": self.compose_video,
+            "compose_mv_video": self.compose_mv_video,
             "export_result": self.export_result,
         }
 
@@ -303,6 +305,159 @@ class HarnessRunner:
             dry_run=context.dry_run,
         )
         return StepResult(status="succeeded", artifacts={"final_video": str(output_path)})
+
+    def compose_mv_video(self, context: StepContext) -> StepResult:
+        video = context.job.inputs.get("video", {})
+        audio_path = Path(video.get("audio_path") or context.artifacts.get("result_audio") or context.artifacts.get("final_mix", ""))
+        character_image = Path(video["character_image"])
+        background_image = Path(video["background_image"])
+        output_path = context.workspace / "video" / "final_mv_4k.mp4"
+        prepared_character_image = context.workspace / "video" / "character_cutout.png"
+        duration = float(video.get("duration_seconds", context.job.inputs.get("song", {}).get("duration_seconds", 30)))
+        width = int(video.get("width", 3840))
+        height = int(video.get("height", 2160))
+        character_height_ratio = float(video.get("character_height_ratio", 0.24))
+        character_x_ratio = float(video.get("character_x_ratio", 0.44))
+        ground_offset_ratio = float(video.get("ground_offset_ratio", 0.16))
+        if not context.dry_run:
+            if not audio_path.is_file():
+                raise FileNotFoundError(f"Cover audio not found: {audio_path}")
+            if not character_image.is_file():
+                raise FileNotFoundError(f"Character image not found: {character_image}")
+            if not background_image.is_file():
+                raise FileNotFoundError(f"Background image not found: {background_image}")
+            self._prepare_mv_character_image(character_image, prepared_character_image)
+        else:
+            prepared_character_image = character_image
+        self.ffmpeg.compose_mv_video(
+            audio_path=audio_path,
+            character_image=prepared_character_image,
+            background_image=background_image,
+            output_path=output_path,
+            log_path=context.logs_dir / "compose_mv_video.log",
+            duration_seconds=duration,
+            width=width,
+            height=height,
+            character_height_ratio=character_height_ratio,
+            character_x_ratio=character_x_ratio,
+            ground_offset_ratio=ground_offset_ratio,
+            dry_run=context.dry_run,
+        )
+        return StepResult(
+            status="succeeded",
+            artifacts={"prepared_character_image": str(prepared_character_image), "final_video": str(output_path)},
+        )
+
+    def _prepare_mv_character_image(self, source_path: Path, output_path: Path) -> None:
+        from PIL import Image
+
+        image = Image.open(source_path).convert("RGBA")
+        width, height = image.size
+        pixels = image.load()
+        bg = self._average_corner_color(image)
+
+        background = bytearray(width * height)
+        queue: deque[tuple[int, int]] = deque()
+
+        def index(x: int, y: int) -> int:
+            return y * width + x
+
+        def is_background_candidate(x: int, y: int) -> bool:
+            red, green, blue, alpha = pixels[x, y]
+            if alpha == 0:
+                return True
+            return max(abs(red - bg[0]), abs(green - bg[1]), abs(blue - bg[2])) <= 28
+
+        for x in range(width):
+            for y in (0, height - 1):
+                if is_background_candidate(x, y):
+                    background[index(x, y)] = 1
+                    queue.append((x, y))
+        for y in range(height):
+            for x in (0, width - 1):
+                if not background[index(x, y)] and is_background_candidate(x, y):
+                    background[index(x, y)] = 1
+                    queue.append((x, y))
+
+        while queue:
+            x, y = queue.popleft()
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if 0 <= nx < width and 0 <= ny < height:
+                    pos = index(nx, ny)
+                    if not background[pos] and is_background_candidate(nx, ny):
+                        background[pos] = 1
+                        queue.append((nx, ny))
+
+        for y in range(height):
+            for x in range(width):
+                if background[index(x, y)]:
+                    red, green, blue, _ = pixels[x, y]
+                    pixels[x, y] = (red, green, blue, 0)
+
+        bbox = self._first_character_bbox(image)
+        if bbox:
+            image = image.crop(bbox)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(output_path)
+
+    @staticmethod
+    def _average_corner_color(image: object) -> tuple[int, int, int]:
+        width, height = image.size
+        samples = []
+        for x in range(min(12, width)):
+            for y in range(min(12, height)):
+                samples.append(image.getpixel((x, y))[:3])
+                samples.append(image.getpixel((width - 1 - x, y))[:3])
+                samples.append(image.getpixel((x, height - 1 - y))[:3])
+                samples.append(image.getpixel((width - 1 - x, height - 1 - y))[:3])
+        return tuple(sum(color[channel] for color in samples) // len(samples) for channel in range(3))
+
+    @staticmethod
+    def _first_character_bbox(image: object) -> tuple[int, int, int, int] | None:
+        width, height = image.size
+        alpha = image.getchannel("A")
+        columns = []
+        for x in range(width):
+            count = sum(1 for y in range(height) if alpha.getpixel((x, y)) > 0)
+            columns.append(count)
+
+        min_column_pixels = max(3, height // 120)
+        groups: list[tuple[int, int]] = []
+        start = None
+        for x, count in enumerate(columns):
+            if count >= min_column_pixels and start is None:
+                start = x
+            elif count < min_column_pixels and start is not None:
+                if x - start > 30:
+                    groups.append((start, x))
+                start = None
+        if start is not None and width - start > 30:
+            groups.append((start, width))
+
+        if not groups:
+            return alpha.getbbox()
+
+        group = groups[0]
+        left, right = group
+        ys = [
+            y
+            for x in range(left, right)
+            for y in range(height)
+            if alpha.getpixel((x, y)) > 0
+        ]
+        if not ys:
+            return alpha.getbbox()
+
+        side_padding = 24
+        top_padding = 24
+        bottom_padding = 2
+        return (
+            max(0, left - side_padding),
+            max(0, min(ys) - top_padding),
+            min(width, right + side_padding),
+            min(height, max(ys) + bottom_padding + 1),
+        )
 
     def export_result(self, context: StepContext) -> StepResult:
         return StepResult(

@@ -1,0 +1,22 @@
+{
+  "source_size": [1024, 576],
+  "sprite_scale": 0.62,
+  "mouth": {
+    "center": [445, 451],
+    "sprites": [
+      "mouth/mouth_closed.png",
+      "mouth/mouth_small.png",
+      "mouth/mouth_mid.png",
+      "mouth/mouth_open.png"
+    ]
+  },
+  "strum": {
+    "center": [500, 465],
+    "sprites": [
+      "strum/strum_up.png",
+      "strum/strum_mid.png",
+      "strum/strum_down.png"
+    ]
+  },
+  "notes": "Coordinates are measured against the 1024x576 composite city frame."
+}

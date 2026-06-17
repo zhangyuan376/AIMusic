@@ -51,7 +51,8 @@ The browser workflow is designed for non-technical use:
 3. Save the preferred voice into local voice history.
 4. Train or select a ready historical voice.
 5. Pick a song and run vocal separation as its own job.
-6. Generate the cover video from the separated vocal/instrumental tracks.
+6. Generate the cover audio from the separated vocal/instrumental tracks.
+7. Generate a 4K atmospheric MV from the cover audio, character image, and background image.
 
 Historical voices are stored locally in `singing_app/voice_library.json`. This file is user data and should not be committed or bundled into installer builds.
 
@@ -141,5 +142,5 @@ powershell -ExecutionPolicy Bypass -File scripts\build_inno_installer.ps1
 
 ## Current Limitations
 
-This is a functional V1 harness and Windows UI prototype. The app can create jobs, resume steps, inspect logs, generate samples, train/import models, separate vocals, convert singing vocals, mix audio, and synthesize a basic singing video. The UI is intentionally simple; a polished PySide6 interface, stronger repair flows, GPU-specific training presets, and richer mouth-shape animation are still future work.
+This is a functional V1 harness and Windows UI prototype. The app can create jobs, resume steps, inspect logs, generate samples, train/import models, separate vocals, convert singing vocals, and mix cover audio. Basic video synthesis remains available in the harness, but the simplified web flow focuses on audio first; a polished PySide6 interface, stronger repair flows, GPU-specific training presets, and richer mouth-shape animation are still future work.
 

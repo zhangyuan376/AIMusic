@@ -6,6 +6,7 @@ import re
 import threading
 import tkinter as tk
 import webbrowser
+from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +21,8 @@ from singing_app.runtime_check import checks_as_dicts
 
 STATIC_ROOT = Path(__file__).resolve().parent / "web_static"
 VOICE_LIBRARY_PATH = RUNTIME.app_root / "singing_app" / "voice_library.json"
+SEPARATION_LIBRARY_PATH = RUNTIME.app_root / "singing_app" / "separation_library.json"
+COVER_LIBRARY_PATH = RUNTIME.app_root / "singing_app" / "cover_library.json"
 
 
 class WebJobManager:
@@ -52,6 +55,12 @@ class WebJobManager:
                 auto_bind_message = auto_bind_trained_voice(job_path)
                 if auto_bind_message:
                     extra_messages.append(auto_bind_message)
+                separation_message = auto_save_separation_result(job_path)
+                if separation_message:
+                    extra_messages.append(separation_message)
+                cover_message = auto_save_cover_result(job_path)
+                if cover_message:
+                    extra_messages.append(cover_message)
             message = "Job finished."
         except Exception as exc:
             message = f"Job failed: {exc}"
@@ -77,6 +86,10 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/voices":
                 ensure_default_voice()
                 self._send_json({"voices": load_voice_library()})
+            elif parsed.path == "/api/separations":
+                self._send_json({"separations": load_separation_library()})
+            elif parsed.path == "/api/covers":
+                self._send_json({"covers": load_cover_library()})
             elif parsed.path == "/api/samples":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json({"samples": list_voice_samples(job_path)})
@@ -108,6 +121,10 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             payload = self._read_json()
             if parsed.path == "/api/create-video-job":
                 self._send_json({"job_path": str(write_video_job(payload))})
+            elif parsed.path == "/api/create-mv-video-job":
+                self._send_json({"job_path": str(write_mv_video_job(payload))})
+            elif parsed.path == "/api/create-audio-cover-job":
+                self._send_json({"job_path": str(write_audio_cover_job(payload))})
             elif parsed.path == "/api/create-separation-job":
                 self._send_json({"job_path": str(write_separation_job(payload))})
             elif parsed.path == "/api/create-voice-job":
@@ -158,14 +175,52 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
         if not path.exists():
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
-        data = path.read_bytes()
-        self.send_response(HTTPStatus.OK)
+        file_size = path.stat().st_size
+        range_header = self.headers.get("Range", "")
+        start = 0
+        end = file_size - 1
+        status = HTTPStatus.OK
+
+        if range_header.startswith("bytes="):
+            requested = range_header.removeprefix("bytes=").split(",", 1)[0].strip()
+            start_text, _, end_text = requested.partition("-")
+            try:
+                if start_text:
+                    start = int(start_text)
+                    end = int(end_text) if end_text else file_size - 1
+                else:
+                    suffix_length = int(end_text)
+                    start = max(0, file_size - suffix_length)
+                end = min(end, file_size - 1)
+                if start > end or start >= file_size:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{file_size}")
+                    self.end_headers()
+                    return
+                status = HTTPStatus.PARTIAL_CONTENT
+            except ValueError:
+                start = 0
+                end = file_size - 1
+
+        content_length = end - start + 1
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
+        self.send_header("Accept-Ranges", "bytes")
         if path.name == "index.html":
             self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(data)))
+        if status == HTTPStatus.PARTIAL_CONTENT:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+        self.send_header("Content-Length", str(content_length))
         self.end_headers()
-        self.wfile.write(data)
+        with path.open("rb") as file:
+            file.seek(start)
+            remaining = content_length
+            while remaining > 0:
+                chunk = file.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
 
 def default_values() -> dict[str, str]:
@@ -188,9 +243,7 @@ def default_values() -> dict[str, str]:
 
 def ensure_default_voice() -> None:
     voices = load_voice_library(create=False)
-    if any(voice.get("id") == "pomao_default" for voice in voices):
-        return
-    voices.insert(0, {
+    default_voice = {
         "id": "pomao_default",
         "name": "Pomao 默认声线",
         "description": "内置 Pomao 清晰自然声线，可直接用于翻唱。",
@@ -198,8 +251,18 @@ def ensure_default_voice() -> None:
         "sample_dir": "",
         "model_path": str(RUNTIME.default_model),
         "index_path": str(RUNTIME.default_index),
-        "ready": RUNTIME.default_model.exists() and RUNTIME.default_index.exists(),
-    })
+        "ready": RUNTIME.default_model.is_file() and RUNTIME.default_index.is_file(),
+    }
+    existing = next((voice for voice in voices if voice.get("id") == "pomao_default"), None)
+    if existing:
+        model_path = Path(str(existing.get("model_path", "")))
+        index_path = Path(str(existing.get("index_path", "")))
+        if model_path.is_file() and index_path.is_file():
+            existing["ready"] = True
+            _write_json(VOICE_LIBRARY_PATH, {"voices": voices})
+            return
+        voices = [voice for voice in voices if voice.get("id") != "pomao_default"]
+    voices.insert(0, default_voice)
     _write_json(VOICE_LIBRARY_PATH, {"voices": voices})
 
 
@@ -209,7 +272,14 @@ def load_voice_library(create: bool = True) -> list[dict[str, Any]]:
             _write_json(VOICE_LIBRARY_PATH, {"voices": []})
         return []
     data = _read_json(VOICE_LIBRARY_PATH)
-    return list(data.get("voices", []))
+    voices = []
+    for item in data.get("voices", []):
+        voice = dict(item)
+        model_path = str(voice.get("model_path", "")).strip()
+        index_path = str(voice.get("index_path", "")).strip()
+        voice["ready"] = bool(model_path and index_path and Path(model_path).is_file() and Path(index_path).is_file())
+        voices.append(voice)
+    return voices
 
 
 def save_voice_selection(payload: dict[str, Any]) -> dict[str, Any]:
@@ -220,10 +290,10 @@ def save_voice_selection(payload: dict[str, Any]) -> dict[str, Any]:
         raise FileNotFoundError(f"sample_path not found: {sample_path}")
     model_path = Path(str(payload.get("model_path", ""))) if payload.get("model_path") else None
     index_path = Path(str(payload.get("index_path", ""))) if payload.get("index_path") else None
-    if model_path and not model_path.exists():
-        raise FileNotFoundError(f"model_path not found: {model_path}")
-    if index_path and not index_path.exists():
-        raise FileNotFoundError(f"index_path not found: {index_path}")
+    if model_path and not model_path.is_file():
+        raise FileNotFoundError(f"model_path file not found: {model_path}")
+    if index_path and not index_path.is_file():
+        raise FileNotFoundError(f"index_path file not found: {index_path}")
 
     voice_id = _slugify(name)
     voice = {
@@ -294,13 +364,123 @@ def bind_trained_voice(payload: dict[str, Any]) -> dict[str, Any]:
         raise FileNotFoundError(f"Training job not found: {job_path}")
     status = job_status(job_path, {"running": False, "current_job": "", "messages": []})
     artifacts = status.get("artifacts") or {}
-    model_path = _required_existing_path(str(artifacts.get("trained_model_path", "")), "trained model")
-    index_path = _required_existing_path(str(artifacts.get("trained_index_path", "")), "trained index")
+    model_path = _required_existing_file(str(artifacts.get("trained_model_path", "")), "trained model")
+    index_path = _required_existing_file(str(artifacts.get("trained_index_path", "")), "trained index")
     voice["model_path"] = str(model_path)
     voice["index_path"] = str(index_path)
     voice["ready"] = True
     voice["training_job_path"] = str(job_path)
     return update_voice(voice)
+
+
+def load_separation_library(create: bool = True) -> list[dict[str, Any]]:
+    if not SEPARATION_LIBRARY_PATH.exists():
+        if create:
+            _write_json(SEPARATION_LIBRARY_PATH, {"separations": []})
+        return []
+    data = _read_json(SEPARATION_LIBRARY_PATH)
+    separations = []
+    for item in data.get("separations", []):
+        item = dict(item)
+        item["ready"] = Path(str(item.get("vocals_path", ""))).exists() and Path(str(item.get("instrumental_path", ""))).exists()
+        separations.append(item)
+    return separations
+
+
+def update_separation(record: dict[str, Any]) -> dict[str, Any]:
+    records = [item for item in load_separation_library() if item.get("id") != record.get("id")]
+    records.append(record)
+    records.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+    _write_json(SEPARATION_LIBRARY_PATH, {"separations": records})
+    return record
+
+
+def auto_save_separation_result(job_path: Path) -> str:
+    try:
+        job = _read_json(job_path)
+        steps = list(job.get("steps", []))
+        if steps != ["check_runtime", "trim_song", "separate_vocals", "export_result"]:
+            return ""
+        song = job.get("inputs", {}).get("song", {})
+        artifacts = job_status(job_path, {"running": False, "current_job": "", "messages": []}).get("artifacts") or {}
+        vocals = _required_existing_path(str(artifacts.get("vocals", "")), "separated vocals")
+        instrumental = _required_existing_path(str(artifacts.get("instrumental", "")), "separated instrumental")
+        song_path = _required_existing_path(str(song.get("path", "")), "song")
+        start_seconds = float(song.get("start_seconds", 0))
+        duration_seconds = float(song.get("duration_seconds", 30))
+        record_id = _slugify(f"{song_path.stem}_{start_seconds:.2f}_{duration_seconds:.2f}")
+        record = {
+            "id": record_id,
+            "label": f"{song_path.stem} [{start_seconds:.2f}s - {start_seconds + duration_seconds:.2f}s]",
+            "song_path": str(song_path),
+            "start_seconds": start_seconds,
+            "duration_seconds": duration_seconds,
+            "job_path": str(job_path),
+            "vocals_path": str(vocals),
+            "instrumental_path": str(instrumental),
+            "ready": True,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        update_separation(record)
+        return f"Saved separation history: {record['label']}"
+    except Exception as exc:
+        return f"Save separation history failed: {exc}"
+
+
+def load_cover_library(create: bool = True) -> list[dict[str, Any]]:
+    if not COVER_LIBRARY_PATH.exists():
+        if create:
+            _write_json(COVER_LIBRARY_PATH, {"covers": []})
+        return []
+    data = _read_json(COVER_LIBRARY_PATH)
+    covers = []
+    for item in data.get("covers", []):
+        item = dict(item)
+        item["ready"] = Path(str(item.get("audio_path", ""))).is_file()
+        covers.append(item)
+    return covers
+
+
+def update_cover(record: dict[str, Any]) -> dict[str, Any]:
+    records = [item for item in load_cover_library() if item.get("id") != record.get("id")]
+    records.append(record)
+    records.sort(key=lambda item: str(item.get("updated_at", "")), reverse=True)
+    _write_json(COVER_LIBRARY_PATH, {"covers": records})
+    return record
+
+
+def auto_save_cover_result(job_path: Path) -> str:
+    try:
+        job = _read_json(job_path)
+        steps = list(job.get("steps", []))
+        if steps != ["check_runtime", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "export_result"]:
+            return ""
+        song = job.get("inputs", {}).get("song", {})
+        voice = job.get("inputs", {}).get("voice", {})
+        artifacts = job_status(job_path, {"running": False, "current_job": "", "messages": []}).get("artifacts") or {}
+        audio_path = _required_existing_file(str(artifacts.get("result_audio") or artifacts.get("final_mix") or ""), "cover audio")
+        song_path = Path(str(song.get("path", "")))
+        start_seconds = float(song.get("start_seconds", 0))
+        duration_seconds = float(song.get("duration_seconds", 30))
+        voice_id = str(voice.get("voice_id", "")).strip()
+        label_base = song_path.stem if song_path.name else Path(audio_path).stem
+        record_id = _slugify(f"{label_base}_{voice_id}_{start_seconds:.2f}_{duration_seconds:.2f}")
+        record = {
+            "id": record_id,
+            "label": f"{label_base} / {voice_id or 'voice'} [{start_seconds:.2f}s - {start_seconds + duration_seconds:.2f}s]",
+            "song_path": str(song_path),
+            "voice_id": voice_id,
+            "start_seconds": start_seconds,
+            "duration_seconds": duration_seconds,
+            "job_path": str(job_path),
+            "audio_path": str(audio_path),
+            "ready": True,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        update_cover(record)
+        return f"Saved cover history: {record['label']}"
+    except Exception as exc:
+        return f"Save cover history failed: {exc}"
 
 
 def list_voice_samples(job_path: Path) -> list[dict[str, str]]:
@@ -412,11 +592,11 @@ def write_video_job(payload: dict[str, Any]) -> Path:
         voice = find_voice(voice_id)
         if not voice.get("model_path") or not voice.get("index_path"):
             raise ValueError("这个历史声线还没有可用模型，请先训练或导入 .pth/.index 后再翻唱。")
-        model_path = _required_existing_path(voice["model_path"], "voice model")
-        index_path = _required_existing_path(voice["index_path"], "voice index")
+        model_path = _required_existing_file(voice["model_path"], "voice model")
+        index_path = _required_existing_file(voice["index_path"], "voice index")
     else:
-        model_path = _required_path(payload, "model_path")
-        index_path = _required_path(payload, "index_path")
+        model_path = _required_file(payload, "model_path")
+        index_path = _required_file(payload, "index_path")
     character_id = _slugify(character_name)
     job_id = f"{character_id}_singing_video"
     project_dir = RUNTIME.projects_root / job_id
@@ -447,6 +627,79 @@ def write_video_job(payload: dict[str, Any]) -> Path:
             "video": {"character_image": str(character_image)},
         },
         "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
+    })
+    return job_path
+
+
+def write_audio_cover_job(payload: dict[str, Any]) -> Path:
+    character_name = _required_text(payload, "character_name")
+    song_path = _required_path(payload, "song_path")
+    voice_id = _required_text(payload, "voice_id")
+    voice = find_voice(voice_id)
+    if not voice.get("model_path") or not voice.get("index_path"):
+        raise ValueError("这个历史声线还没有可用模型，请先训练后再生成翻唱音频。")
+    model_path = _required_existing_file(voice["model_path"], "voice model")
+    index_path = _required_existing_file(voice["index_path"], "voice index")
+    separation = load_separation_artifacts(
+        str(payload.get("separation_job_path", "")).strip(),
+        validate=not bool(payload.get("dry_run", False)),
+    )
+    if not separation:
+        raise ValueError("请先完成人声分离，或从分离历史选择一个结果。")
+
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_cover_audio"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "export_result"],
+        "inputs": {
+            "voice": {"model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path), "voice_id": voice_id},
+            "song": {
+                "path": str(song_path),
+                "start_seconds": float(payload.get("start_seconds", 0)),
+                "duration_seconds": float(payload.get("duration_seconds", 30)),
+                "vocals_path": separation["vocals"],
+                "instrumental_path": separation["instrumental"],
+            },
+        },
+        "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
+    })
+    return job_path
+
+
+def write_mv_video_job(payload: dict[str, Any]) -> Path:
+    audio_path = _required_file(payload, "audio_path")
+    character_image = _required_file(payload, "character_image")
+    background_image = _required_file(payload, "background_image")
+    character_name = str(payload.get("character_name", "")).strip() or "pomao"
+    duration_seconds = float(payload.get("duration_seconds", 30))
+    if duration_seconds <= 0:
+        raise ValueError("duration_seconds must be greater than 0.")
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_mv_4k"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "compose_mv_video", "export_result"],
+        "inputs": {
+            "video": {
+                "audio_path": str(audio_path),
+                "character_image": str(character_image),
+                "background_image": str(background_image),
+                "duration_seconds": duration_seconds,
+                "width": 3840,
+                "height": 2160,
+                "character_height_ratio": float(payload.get("character_height_ratio", 0.24)),
+                "character_x_ratio": float(payload.get("character_x_ratio", 0.44)),
+                "ground_offset_ratio": float(payload.get("ground_offset_ratio", 0.16)),
+            },
+        },
+        "settings": {},
     })
     return job_path
 
@@ -554,10 +807,21 @@ def _required_path(payload: dict[str, Any], key: str) -> Path:
     return _required_existing_path(_required_text(payload, key), key)
 
 
+def _required_file(payload: dict[str, Any], key: str) -> Path:
+    return _required_existing_file(_required_text(payload, key), key)
+
+
 def _required_existing_path(value: str, label: str) -> Path:
     path = Path(value)
     if not path.exists():
         raise FileNotFoundError(f"{label} not found: {path}")
+    return path
+
+
+def _required_existing_file(value: str, label: str) -> Path:
+    path = Path(value)
+    if not path.is_file():
+        raise FileNotFoundError(f"{label} file not found: {path}")
     return path
 
 
