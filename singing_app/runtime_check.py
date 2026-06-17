@@ -17,11 +17,12 @@ class RuntimeCheck:
 
 def run_runtime_checks() -> list[RuntimeCheck]:
     checks = [
+        _check_file("Tool Python", RUNTIME.tool_python),
+        _check_python_module("Demucs", "demucs", RUNTIME.tool_python),
+        _check_python_module("Edge TTS", "edge_tts", RUNTIME.tool_python),
+        _check_file("FFmpeg", RUNTIME.ffmpeg),
         _check_file("Applio Python", RUNTIME.applio_python),
         _check_file("Applio core.py", RUNTIME.applio_core),
-        _check_file("FFmpeg", RUNTIME.ffmpeg),
-        _check_python_module("Demucs", "demucs"),
-        _check_python_module("Edge TTS", "edge_tts"),
         _check_file("Default Pomao model", RUNTIME.default_model),
         _check_file("Default Pomao index", RUNTIME.default_index),
         _check_file("Default character image", RUNTIME.voice_pipeline_root / "Generated_image.png"),
@@ -43,17 +44,17 @@ def _check_file(name: str, path: Path) -> RuntimeCheck:
     return RuntimeCheck(name=name, ok=False, path=str(path), message="Missing")
 
 
-def _check_python_module(name: str, module_name: str) -> RuntimeCheck:
-    if not RUNTIME.applio_python.exists():
+def _check_python_module(name: str, module_name: str, python_path: Path) -> RuntimeCheck:
+    if not python_path.exists():
         return RuntimeCheck(
             name=name,
             ok=False,
-            path=str(RUNTIME.applio_python),
-            message="Applio Python is missing",
+            path=str(python_path),
+            message="Python interpreter is missing",
         )
 
     process = subprocess.run(
-        [str(RUNTIME.applio_python), "-c", f"import {module_name}; print('ok')"],
+        [str(python_path), "-c", f"import {module_name}; print('ok')"],
         cwd=str(RUNTIME.app_root),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

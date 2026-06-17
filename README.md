@@ -85,6 +85,40 @@ run_singing_app.bat
 
 默认打开 `http://127.0.0.1:7860`。
 
+### Linux / macOS
+
+代码已跨平台。在 Linux/macOS 上首次搭建环境:
+
+```bash
+bash setup_env.sh
+```
+
+这会在仓库根目录创建 `.venv`,安装 `requirements.txt` 依赖,并检查 FFmpeg(缺失时会提示用 `apt`/`brew` 安装)。国内可走镜像:
+
+```bash
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash setup_env.sh
+```
+
+启动 WebUI:
+
+```bash
+bash run_singing_web.sh
+```
+
+可执行文件路径按平台自动解析。框架区分两类运行环境:
+
+- **工具环境**(Demucs / Edge TTS):pip 可安装,跑在项目自管的 `.venv` 里。
+- **Applio 环境**(RVC 翻唱推理 `core.py`、训练):外部重型工具包,装在 `tools/ApplioV3.6.2/`,自带独立 Python。
+
+可用环境变量覆盖默认路径:
+
+- `AI_SINGING_PYTHON` — 工具环境的 Python(Demucs/Edge TTS)
+- `AI_SINGING_APPLIO_ROOT` — Applio 工具包根目录(换版本/换位置)
+- `AI_SINGING_APPLIO_PYTHON` — Applio 环境的 Python(RVC)
+- `AI_SINGING_FFMPEG` — FFmpeg 可执行文件
+
+Applio 工具包、模型权重(`.pth`/`.index`)、角色图片等大文件仍是本机运行时资产,不提交到 GitHub;运行时检查会显示缺失路径,按提示拷入即可。
+
 浏览器版目标流程：
 
 1. 用户输入角色名和声线风格。

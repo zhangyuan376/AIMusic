@@ -26,7 +26,7 @@ DEFAULT_CLEAR_VARIANTS = [
 class EdgeTtsAdapter:
     def __init__(
         self,
-        python_path: Path = RUNTIME.applio_python,
+        python_path: Path = RUNTIME.tool_python,
         ffmpeg_path: Path = RUNTIME.ffmpeg,
     ) -> None:
         self.python_path = python_path

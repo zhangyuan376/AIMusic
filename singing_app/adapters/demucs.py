@@ -7,7 +7,7 @@ from singing_app.config import RUNTIME
 
 
 class DemucsAdapter:
-    def __init__(self, python_path: Path = RUNTIME.applio_python) -> None:
+    def __init__(self, python_path: Path = RUNTIME.tool_python) -> None:
         self.python_path = python_path
 
     def separate_vocals(

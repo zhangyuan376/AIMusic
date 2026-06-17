@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -535,17 +537,29 @@ def read_logs(logs_dir: Path) -> list[dict[str, str]]:
     return logs
 
 
+def _open_path(target: Path) -> None:
+    if os.name == "nt":
+        os.startfile(str(target))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(target)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(target)], check=False)
+
+
 def open_output_folder(job_path: Path) -> dict[str, str]:
     if not job_path.exists():
         raise FileNotFoundError(f"Job file not found: {job_path}")
     output_dir = Path(_read_json(job_path)["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
-    os.startfile(str(output_dir))
+    _open_path(output_dir)
     return {"opened": str(output_dir)}
 
 
 def pick_file(kind: str = "any", initial: str = "") -> dict[str, str]:
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return {"path": "", "error": "无法打开文件对话框,请手动粘贴路径"}
     root.withdraw()
     root.attributes("-topmost", True)
     try:
