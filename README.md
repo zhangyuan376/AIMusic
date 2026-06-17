@@ -1,6 +1,6 @@
 # AIMusic
 
-Pomao 角色唱歌视频与声线实验工程。
+Pomao 角色翻唱音频与声线实验工程。
 
 这个仓库保留可复用的工程文件：
 
@@ -63,7 +63,7 @@ scripts/
 setup_env.bat
 ```
 
-这会在 `tools\ApplioV3.6.2\env` 创建本地 Python 环境，并安装 `requirements.txt` 里的 Python 依赖。模型权重、歌曲素材、生成音频/视频、完整 Applio 工具包等大文件仍属于本机运行时资产，不会提交到 GitHub；如果运行时检查提示缺失，按提示把对应文件复制到本机路径。
+这会在 `tools\ApplioV3.6.2\env` 创建本地 Python 环境，并安装 `requirements.txt` 里的 Python 依赖。模型权重、歌曲素材、生成音频、完整 Applio 工具包等大文件仍属于本机运行时资产，不会提交到 GitHub；如果运行时检查提示缺失，按提示把对应文件复制到本机路径。
 
 开发环境启动：
 
@@ -117,14 +117,14 @@ bash run_singing_web.sh
 - `AI_SINGING_APPLIO_PYTHON` — Applio 环境的 Python(RVC)
 - `AI_SINGING_FFMPEG` — FFmpeg 可执行文件
 
-Applio 工具包、模型权重(`.pth`/`.index`)、角色图片等大文件仍是本机运行时资产,不提交到 GitHub;运行时检查会显示缺失路径,按提示拷入即可。
+Applio 工具包、模型权重(`.pth`/`.index`)等大文件仍是本机运行时资产,不提交到 GitHub;运行时检查会显示缺失路径,按提示拷入即可。
 
 浏览器版目标流程：
 
 1. 用户输入角色名和声线风格。
 2. 系统自动生成多条声线试听样本，用户在浏览器里播放试听。
 3. 用户保存喜欢的试听到历史声线；如果已训练/导入模型，可绑定 `.pth` 和 `.index`。
-4. 用户选择音乐和历史声线，系统自动做人声分离、RVC 翻唱、混音和视频合成。
+4. 用户选择音乐和历史声线，系统自动做人声分离、RVC 翻唱、混音，输出翻唱音频。
 
 历史声线保存在本机 `singing_app/voice_library.json`，属于用户数据，不提交到 GitHub。
 

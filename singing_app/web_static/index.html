@@ -51,7 +51,7 @@
 <body>
   <header>
     <h1>AI Singing Video</h1>
-    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 人声分离 -> 生成翻唱音频 -> 生成 4K MV。</div>
+    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 人声分离 -> 生成翻唱音频。</div>
   </header>
 
   <main>
@@ -60,7 +60,7 @@
         <div class="step"><b>1. 设计声线</b><span>输入角色风格，自动生成试听样本。</span></div>
         <div class="step"><b>2. 试听选择</b><span>听完保存喜欢的声线。</span></div>
         <div class="step"><b>3. 训练模型</b><span>历史声线训练后自动绑定。</span></div>
-        <div class="step"><b>4. 分离/生成</b><span>先分离人声，再生成翻唱音频和 4K MV。</span></div>
+        <div class="step"><b>4. 分离/生成</b><span>先分离人声，再生成翻唱音频。</span></div>
       </div>
 
       <h2>第 1 步：描述你想要的角色声线</h2>
@@ -68,11 +68,6 @@
       <input id="voice_character_name" placeholder="例如 Pomao">
       <label>角色/声线风格</label>
       <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
-      <label>角色图片路径</label>
-      <div class="path-picker">
-        <input id="voice_character_image" placeholder="点击右侧选择图片">
-        <button type="button" onclick="pickFile('voice_character_image', 'image')">选择图片</button>
-      </div>
       <button id="audition_button" class="big" onclick="generateAuditions()">生成试听声线</button>
       <div id="audition_status" class="muted" style="margin-top:10px;">还没有生成试听。</div>
       <div class="muted">提示：生成试听需要 Edge TTS，通常会联网；只想测试流程可在高级区勾选 dry-run。</div>
@@ -150,43 +145,6 @@
         <b>翻唱音频</b>
         <audio id="result_audio_player" controls></audio>
         <div id="result_audio_path" class="muted"></div>
-      </div>
-      <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
-    </section>
-
-    <section>
-      <h2>第 6 步：生成 4K 氛围 MV</h2>
-      <div class="muted">使用第 5 步当前或历史翻唱音频，合成 3840x2160 夜景氛围 MV。角色脚底会锁在地面前景，画面有慢推镜头和轻微左右摆动。</div>
-      <label>4K 背景图路径</label>
-      <div class="path-picker">
-        <input id="mv_background_image" placeholder="点击右侧选择 4K 背景图">
-        <button type="button" onclick="pickFile('mv_background_image', 'image')">选择背景图</button>
-      </div>
-      <label>角色图片路径</label>
-      <div class="path-picker">
-        <input id="mv_character_image" placeholder="默认使用第 1 步角色图片，也可重新选择">
-        <button type="button" onclick="pickFile('mv_character_image', 'image')">选择角色图</button>
-      </div>
-      <div class="grid">
-        <div><label>视频时长（秒）</label><input id="mv_duration_seconds" type="number" value="30"></div>
-        <div><label>输出规格</label><input value="3840 x 2160 / 30fps" disabled></div>
-      </div>
-      <details>
-        <summary>画面比例微调</summary>
-        <div class="grid">
-          <div><label>角色高度占画面比例</label><input id="mv_character_height_ratio" type="number" min="0.12" max="0.75" step="0.01" value="0.24"></div>
-          <div><label>角色水平位置</label><input id="mv_character_x_ratio" type="number" min="0.05" max="0.95" step="0.01" value="0.44"></div>
-        </div>
-        <label>角色离底部距离</label>
-        <input id="mv_ground_offset_ratio" type="number" min="0" max="0.35" step="0.005" value="0.16">
-        <div class="muted">参考夜景江边效果：角色高度 0.24、水平位置 0.44、离底部 0.16。脚底会锁定在地面反光区域，不再上下漂移。</div>
-      </details>
-      <button id="mv_button" class="big" onclick="makeMvVideo()">生成 4K 氛围 MV</button>
-      <div id="mv_status" class="muted">先完成或选择第 5 步翻唱音频，再生成视频。</div>
-      <div id="result_video_panel" class="result-video" style="display:none;">
-        <b>4K MV 视频</b>
-        <video id="result_video_player" controls></video>
-        <div id="result_video_path" class="muted"></div>
       </div>
       <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
     </section>
@@ -281,11 +239,6 @@
     function waveformStatus(text, bad = false) {
       $("waveform_status").textContent = text;
       $("waveform_status").className = bad ? "bad" : "muted";
-    }
-
-    function videoStatus(text, bad = false) {
-      $("mv_status").textContent = text;
-      $("mv_status").className = bad ? "bad" : "muted";
     }
 
     function setButtonBusy(id, busy, text, idleText) {
@@ -670,7 +623,6 @@
       const d = await api("/api/defaults");
       $("voice_character_name").value = d.default_character_name;
       $("voice_description").value = d.default_voice_description;
-      $("voice_character_image").value = d.default_character_image;
       $("song_path").value = d.default_song;
       $("job_path").value = d.default_job;
     }
@@ -841,7 +793,6 @@
         const result = await post("/api/create-voice-job", {
           character_name: $("voice_character_name").value,
           voice_description: $("voice_description").value,
-          character_image: $("voice_character_image").value,
           tts_voice: "zh-CN-YunxiNeural"
         });
         setJob(result.job_path);
@@ -935,39 +886,6 @@
         await runJob(true);
       } catch (err) {
         stopProgressPolling();
-        status(err.message, true);
-        alert(err.message);
-      }
-    }
-
-    async function makeMvVideo() {
-      try {
-        const audioPath = currentCoverAudioPath || $("result_audio_path").textContent.trim();
-        if (!audioPath) throw new Error("请先完成或选择第 5 步翻唱音频。");
-        const characterImage = $("mv_character_image").value.trim() || $("voice_character_image").value.trim();
-        if (!characterImage) throw new Error("请先选择角色图片。");
-        setButtonBusy("mv_button", true, "正在生成 4K MV...", "生成 4K 氛围 MV");
-        setProgress("正在创建 4K MV 视频任务...", true);
-        videoStatus("正在创建视频任务。4K 合成会比音频慢一些。");
-        const result = await post("/api/create-mv-video-job", {
-          character_name: $("voice_character_name").value || "pomao",
-          audio_path: audioPath,
-          character_image: characterImage,
-          background_image: $("mv_background_image").value,
-          duration_seconds: $("mv_duration_seconds").value || $("duration_seconds").value || 30,
-          character_height_ratio: $("mv_character_height_ratio").value || 0.24,
-          character_x_ratio: $("mv_character_x_ratio").value || 0.44,
-          ground_offset_ratio: $("mv_ground_offset_ratio").value || 0.16,
-          dry_run: $("dry_run").checked
-        });
-        setJob(result.job_path);
-        startProgressPolling("mv");
-        await runJob(true);
-      } catch (err) {
-        stopProgressPolling();
-        setButtonBusy("mv_button", false, "", "生成 4K 氛围 MV");
-        setProgress(err.message, false, true);
-        videoStatus(err.message, true);
         status(err.message, true);
         alert(err.message);
       }
@@ -1071,7 +989,6 @@
       $("state").textContent = JSON.stringify(data.state, null, 2);
       $("artifacts").textContent = summarizeArtifacts(data.artifacts);
       renderResultAudio(data.artifacts);
-      renderResultVideo(data.artifacts);
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
       if (data.runner && data.runner.running) {
         status("任务正在运行，请等待。");
@@ -1106,11 +1023,6 @@
             loadCovers().catch(() => {});
             setProgress("翻唱音频已完成并保存到历史，可以直接播放。", false);
           }
-          if (activeTask === "mv") {
-            setButtonBusy("mv_button", false, "", "生成 4K 氛围 MV");
-            videoStatus("4K MV 已生成，可以在下方播放或打开结果文件夹。");
-            setProgress("4K MV 已完成。", false);
-          }
           stopProgressPolling();
         }
         if (lastMessage.startsWith("Job failed:")) {
@@ -1118,7 +1030,6 @@
           setButtonBusy("audition_button", false, "", "生成试听声线");
           setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
           setButtonBusy("separate_button", false, "", "开始人声分离");
-          setButtonBusy("mv_button", false, "", "生成 4K 氛围 MV");
           stopProgressPolling();
         }
       }
@@ -1129,7 +1040,6 @@
       if (task === "training") return "声线训练";
       if (task === "separation") return "人声分离";
       if (task === "cover") return "翻唱音频";
-      if (task === "mv") return "4K MV";
       return "任务";
     }
 
@@ -1150,7 +1060,6 @@
     function summarizeArtifacts(artifacts) {
       if (!artifacts) return "还没有输出。";
       return [
-        artifacts.result_video ? `视频：${artifacts.result_video}` : "",
         artifacts.result_audio ? `音频：${artifacts.result_audio}` : "",
         artifacts.vocals ? `原唱人声：${artifacts.vocals}` : "",
         artifacts.instrumental ? `伴奏：${artifacts.instrumental}` : "",
@@ -1177,24 +1086,6 @@
         player.load();
       }
       $("result_audio_path").textContent = audioPath;
-      panel.style.display = "block";
-    }
-
-    function renderResultVideo(artifacts) {
-      const videoPath = artifacts && (artifacts.result_video || artifacts.final_video || "");
-      const panel = $("result_video_panel");
-      const player = $("result_video_player");
-      if (!videoPath) {
-        panel.style.display = "none";
-        player.removeAttribute("src");
-        return;
-      }
-      const src = `/api/file?path=${encodeURIComponent(videoPath)}`;
-      if (player.getAttribute("src") !== src) {
-        player.src = src;
-        player.load();
-      }
-      $("result_video_path").textContent = videoPath;
       panel.style.display = "block";
     }
 

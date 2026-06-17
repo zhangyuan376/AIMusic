@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +22,6 @@ class CharacterProject:
     voice_description: str = ""
     training_text_path: str = ""
     sample_dir: str = ""
-    image_path: str = ""
-    mouth_shape_paths: list[str] = field(default_factory=list)
-    background_path: str = ""
     models: list[VoiceModelRef] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -36,6 +33,8 @@ class CharacterProject:
     def load(cls, config_path: Path) -> "CharacterProject":
         with config_path.open("r", encoding="utf-8") as file:
             data = json.load(file)
+        known = {f.name for f in fields(cls)}
+        data = {key: value for key, value in data.items() if key in known}
         data["root_dir"] = Path(data["root_dir"])
         data["models"] = [VoiceModelRef(**item) for item in data.get("models", [])]
         return cls(**data)

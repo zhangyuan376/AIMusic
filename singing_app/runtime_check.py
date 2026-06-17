@@ -25,7 +25,6 @@ def run_runtime_checks() -> list[RuntimeCheck]:
         _check_file("Applio core.py", RUNTIME.applio_core),
         _check_file("Default Pomao model", RUNTIME.default_model),
         _check_file("Default Pomao index", RUNTIME.default_index),
-        _check_file("Default character image", RUNTIME.voice_pipeline_root / "Generated_image.png"),
     ]
     return checks
 

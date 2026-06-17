@@ -10,7 +10,6 @@
     "separate_vocals",
     "convert_vocals",
     "mix_audio",
-    "compose_video",
     "export_result"
   ],
   "inputs": {
@@ -18,11 +17,7 @@
       "id": "demo_character",
       "name": "Demo Character",
       "root_dir": "D:\\further\\IP\\singing_app\\projects\\demo_character_singing_video\\character",
-      "voice_description": "小只、安静、略带鼻音和一点点沙哑，但吐字要清楚",
-      "image_path": "D:\\further\\IP\\voice_pipeline\\Generated_image.png",
-      "mouth_shape_paths": [
-        "D:\\further\\IP\\voice_pipeline\\Generated_image.png"
-      ]
+      "voice_description": "小只、安静、略带鼻音和一点点沙哑，但吐字要清楚"
     },
     "voice": {
       "model_name": "pomao_clear_voice_10e_1350s",
@@ -33,9 +28,6 @@
       "path": "D:\\further\\IP\\voice_pipeline\\input_song\\cancel_send_20s_30s_test.wav",
       "start_seconds": 0.0,
       "duration_seconds": 30.0
-    },
-    "video": {
-      "character_image": "D:\\further\\IP\\voice_pipeline\\Generated_image.png"
     }
   },
   "settings": {

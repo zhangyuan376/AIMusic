@@ -8,7 +8,6 @@
     "separate_vocals",
     "convert_vocals",
     "mix_audio",
-    "compose_video",
     "export_result"
   ],
   "inputs": {
@@ -21,9 +20,6 @@
       "path": "d:\\further\\IP\\voice_pipeline\\input_song\\cancel_send_20s_30s_test.wav",
       "start_seconds": 0,
       "duration_seconds": 30
-    },
-    "video": {
-      "character_image": "d:\\further\\IP\\voice_pipeline\\Generated_image.png"
     }
   },
   "settings": {
@@ -38,4 +34,3 @@
     }
   }
 }
-

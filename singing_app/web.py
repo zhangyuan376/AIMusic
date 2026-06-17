@@ -121,11 +121,7 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self._read_json()
-            if parsed.path == "/api/create-video-job":
-                self._send_json({"job_path": str(write_video_job(payload))})
-            elif parsed.path == "/api/create-mv-video-job":
-                self._send_json({"job_path": str(write_mv_video_job(payload))})
-            elif parsed.path == "/api/create-audio-cover-job":
+            if parsed.path == "/api/create-audio-cover-job":
                 self._send_json({"job_path": str(write_audio_cover_job(payload))})
             elif parsed.path == "/api/create-separation-job":
                 self._send_json({"job_path": str(write_separation_job(payload))})
@@ -234,7 +230,6 @@ def default_values() -> dict[str, str]:
         "default_job": str(RUNTIME.app_root / "singing_app" / "jobs" / "pomao_demo_job.json"),
         "default_character_name": "Pomao",
         "default_voice_description": "小只、安静、略带鼻音和一点点沙哑，但吐字要清楚",
-        "default_character_image": str(RUNTIME.voice_pipeline_root / "Generated_image.png"),
         "default_model": str(RUNTIME.default_model),
         "default_index": str(RUNTIME.default_index),
         "default_song": str(RUNTIME.voice_pipeline_root / "input_song" / "cancel_send_20s_30s_test.wav"),
@@ -597,54 +592,6 @@ def _file_dialog_types(kind: str) -> list[tuple[str, str]]:
     return [("All files", "*.*")]
 
 
-def write_video_job(payload: dict[str, Any]) -> Path:
-    character_name = _required_text(payload, "character_name")
-    song_path = _required_path(payload, "song_path")
-    character_image = _required_path(payload, "character_image")
-    voice_id = str(payload.get("voice_id", "")).strip()
-    if voice_id:
-        voice = find_voice(voice_id)
-        if not voice.get("model_path") or not voice.get("index_path"):
-            raise ValueError("这个历史声线还没有可用模型，请先训练或导入 .pth/.index 后再翻唱。")
-        model_path = _required_existing_file(voice["model_path"], "voice model")
-        index_path = _required_existing_file(voice["index_path"], "voice index")
-    else:
-        model_path = _required_file(payload, "model_path")
-        index_path = _required_file(payload, "index_path")
-    character_id = _slugify(character_name)
-    job_id = f"{character_id}_singing_video"
-    project_dir = RUNTIME.projects_root / job_id
-    job_path = _job_path(job_id)
-    separation = load_separation_artifacts(
-        str(payload.get("separation_job_path", "")).strip(),
-        validate=not bool(payload.get("dry_run", False)),
-    )
-    song_inputs: dict[str, Any] = {
-        "path": str(song_path),
-        "start_seconds": float(payload.get("start_seconds", 0)),
-        "duration_seconds": float(payload.get("duration_seconds", 30)),
-    }
-    if separation:
-        steps = ["check_runtime", "create_character", "generate_training_text", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "compose_video", "export_result"]
-        song_inputs["vocals_path"] = separation["vocals"]
-        song_inputs["instrumental_path"] = separation["instrumental"]
-    else:
-        steps = ["check_runtime", "create_character", "generate_training_text", "import_voice_model", "trim_song", "separate_vocals", "convert_vocals", "mix_audio", "compose_video", "export_result"]
-    _write_json(job_path, {
-        "job_id": job_id,
-        "output_dir": str(project_dir),
-        "steps": steps,
-        "inputs": {
-            "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip(), "image_path": str(character_image), "mouth_shape_paths": [str(character_image)]},
-            "voice": {"model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path), "voice_id": voice_id},
-            "song": song_inputs,
-            "video": {"character_image": str(character_image)},
-        },
-        "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
-    })
-    return job_path
-
-
 def write_audio_cover_job(payload: dict[str, Any]) -> Path:
     character_name = _required_text(payload, "character_name")
     song_path = _required_path(payload, "song_path")
@@ -680,40 +627,6 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
             },
         },
         "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
-    })
-    return job_path
-
-
-def write_mv_video_job(payload: dict[str, Any]) -> Path:
-    audio_path = _required_file(payload, "audio_path")
-    character_image = _required_file(payload, "character_image")
-    background_image = _required_file(payload, "background_image")
-    character_name = str(payload.get("character_name", "")).strip() or "pomao"
-    duration_seconds = float(payload.get("duration_seconds", 30))
-    if duration_seconds <= 0:
-        raise ValueError("duration_seconds must be greater than 0.")
-    character_id = _slugify(character_name)
-    job_id = f"{character_id}_mv_4k"
-    project_dir = RUNTIME.projects_root / job_id
-    job_path = _job_path(job_id)
-    _write_json(job_path, {
-        "job_id": job_id,
-        "output_dir": str(project_dir),
-        "steps": ["check_runtime", "compose_mv_video", "export_result"],
-        "inputs": {
-            "video": {
-                "audio_path": str(audio_path),
-                "character_image": str(character_image),
-                "background_image": str(background_image),
-                "duration_seconds": duration_seconds,
-                "width": 3840,
-                "height": 2160,
-                "character_height_ratio": float(payload.get("character_height_ratio", 0.24)),
-                "character_x_ratio": float(payload.get("character_x_ratio", 0.44)),
-                "ground_offset_ratio": float(payload.get("ground_offset_ratio", 0.16)),
-            },
-        },
-        "settings": {},
     })
     return job_path
 
@@ -761,7 +674,6 @@ def load_separation_artifacts(job_path_value: str, validate: bool = True) -> dic
 
 def write_voice_sample_job(payload: dict[str, Any]) -> Path:
     character_name = _required_text(payload, "character_name")
-    character_image = _required_path(payload, "character_image")
     character_id = _slugify(character_name)
     job_id = f"{character_id}_voice_samples"
     project_dir = RUNTIME.projects_root / job_id
@@ -771,7 +683,7 @@ def write_voice_sample_job(payload: dict[str, Any]) -> Path:
         "output_dir": str(project_dir),
         "steps": ["check_runtime", "create_character", "generate_training_text", "generate_voice_samples", "export_result"],
         "inputs": {
-            "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip(), "image_path": str(character_image), "mouth_shape_paths": [str(character_image)]},
+            "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip()},
             "voice": {"model_name": f"{character_id}_voice", "tts_voice": str(payload.get("tts_voice", "zh-CN-YunxiNeural")).strip() or "zh-CN-YunxiNeural"},
         },
         "settings": {},
