@@ -6,8 +6,8 @@ The application should install everything needed for a non-technical user to run
 
 Ship a large but self-contained Windows installer:
 
-- desktop app files
-- `AISingingVideo.exe`
+- local WebUI app files
+- `run_singing_web.bat`
 - bundled Python runtime
 - bundled Applio runtime
 - bundled Demucs and Edge TTS Python packages
@@ -21,8 +21,8 @@ Expected installed layout:
 
 ```text
 AISingingVideo/
-  AISingingVideo.exe
   run_singing_web.bat
+  run_singing_app.bat
   check_singing_app_runtime.bat
   tools/
     ApplioV3.6.2/
@@ -42,8 +42,6 @@ AISingingVideo/
     jobs/
     projects/
 ```
-
-The frozen exe resolves the app root from its own folder, so `tools/`, `voice_pipeline/`, and `singing_app/` should be placed beside the exe.
 
 The browser-based UI is launched with `run_singing_web.bat` and opens `http://127.0.0.1:7860`.
 
@@ -69,12 +67,6 @@ Required checks:
 - default character image exists
 
 ## Build Commands
-
-Build the small UI exe:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_pyinstaller.ps1
-```
 
 Prepare an offline staging folder:
 

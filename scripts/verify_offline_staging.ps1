@@ -10,7 +10,6 @@ $ManifestPath = Join-Path $Root "installer\runtime_manifest.json"
 $Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
 
 $required = @()
-$required += $Manifest.app.exe
 $required += "run_singing_app.bat"
 $required += "run_singing_web.bat"
 $required += "check_singing_app_runtime.bat"
@@ -19,7 +18,7 @@ $required += $Manifest.default_assets
 $required += $Manifest.default_models
 $required += $Manifest.default_jobs
 $required += "singing_app/main.py"
-$required += "singing_app/ui.py"
+$required += "singing_app/web.py"
 $required += "singing_app/projects"
 
 if (-not $SkipRuntime) {

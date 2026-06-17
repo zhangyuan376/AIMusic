@@ -1,10 +1,10 @@
 ; Inno Setup installer skeleton for the offline full installer.
-; Build after creating dist\AISingingVideo and preparing runtime files.
+; Build after preparing runtime files.
 
 #define MyAppName "AI Singing Video"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "AI Singing Video"
-#define MyAppExeName "AISingingVideo.exe"
+#define MyAppLauncher "run_singing_web.bat"
 
 [Setup]
 AppId={{0A0FA3D7-5A94-4304-9A25-AF61E63C5F7D}
@@ -22,7 +22,6 @@ DiskSliceSize=2000000000
 WizardStyle=modern
 
 [Files]
-Source: "..\dist\AISingingVideo\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\singing_app\*"; DestDir: "{app}\singing_app"; Excludes: "projects\*,voice_library.json,__pycache__\*,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\tools\ApplioV3.6.2\*"; DestDir: "{app}\tools\ApplioV3.6.2"; Excludes: "__pycache__\*,*.pyc,logs\*,*.log,tests\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\voice_pipeline\Generated_image*.png"; DestDir: "{app}\voice_pipeline"; Flags: ignoreversion
@@ -37,14 +36,13 @@ Source: "..\USER_GUIDE_zh.md"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{app}\singing_app\projects"
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\{#MyAppName} Web UI"; Filename: "{app}\run_singing_web.bat"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\{#MyAppName} Web UI"; Filename: "{app}\{#MyAppLauncher}"
+Name: "{commondesktop}\{#MyAppName} Web UI"; Filename: "{app}\{#MyAppLauncher}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
 
 [Run]
 Filename: "{app}\check_singing_app_runtime.bat"; Description: "Check runtime after install"; Flags: postinstall skipifsilent
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppLauncher}"; Description: "Launch {#MyAppName} Web UI"; Flags: nowait postinstall skipifsilent
 

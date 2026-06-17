@@ -1,8 +1,6 @@
 {
   "app": {
-    "exe": "AISingingVideo.exe",
     "entry": "singing_app.main",
-    "ui_command": "python -m singing_app.main ui",
     "web_command": "python -m singing_app.main web"
   },
   "runtime": {

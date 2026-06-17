@@ -14,20 +14,6 @@ The harness runs jobs described by JSON files. Each job records:
 d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main run --job d:\further\IP\singing_app\jobs\pomao_demo_job.json
 ```
 
-## Launch Desktop UI
-
-Installed app:
-
-```powershell
-run_singing_app.bat
-```
-
-Development checkout:
-
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main ui
-```
-
 ## Launch Web UI
 
 Installed app:
@@ -43,6 +29,7 @@ d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
 ```
 
 The web UI opens `http://127.0.0.1:7860` and exposes the same harness flow through local JSON APIs. It is intended for easier debugging in a browser.
+`run_singing_app.bat` is kept as a backward-compatible launcher and now starts the same Web UI.
 
 The browser workflow is designed for non-technical use:
 
@@ -114,12 +101,6 @@ This keeps the workflow resumable, testable, and easier to package into a Window
 
 ## Packaging
 
-Build the desktop exe:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_pyinstaller.ps1
-```
-
 Prepare and verify the offline staging folder:
 
 ```powershell
@@ -142,5 +123,5 @@ powershell -ExecutionPolicy Bypass -File scripts\build_inno_installer.ps1
 
 ## Current Limitations
 
-This is a functional V1 harness and Windows UI prototype. The app can create jobs, resume steps, inspect logs, generate samples, train/import models, separate vocals, convert singing vocals, and mix cover audio. Basic video synthesis remains available in the harness, but the simplified web flow focuses on audio first; a polished PySide6 interface, stronger repair flows, GPU-specific training presets, and richer mouth-shape animation are still future work.
+This is a functional V1 harness and local Web UI. The app can create jobs, resume steps, inspect logs, generate samples, train/import models, separate vocals, convert singing vocals, mix cover audio, and render basic MV outputs. Stronger repair flows, GPU-specific training presets, and richer mouth-shape animation are still future work.
 

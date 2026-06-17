@@ -9,19 +9,13 @@ $Out = New-Item -ItemType Directory -Force -Path $OutputDir
 
 Write-Host "Preparing offline staging folder at $($Out.FullName)"
 
-$cleanItems = @("AISingingVideo.exe", "singing_app", "voice_pipeline", "tools", "run_singing_app.bat", "run_singing_web.bat", "check_singing_app_runtime.bat")
+$cleanItems = @("singing_app", "voice_pipeline", "tools", "run_singing_app.bat", "run_singing_web.bat", "check_singing_app_runtime.bat")
 foreach ($item in $cleanItems) {
   $target = Join-Path $Out.FullName $item
   if (Test-Path $target) {
     Remove-Item $target -Recurse -Force
   }
 }
-
-$exeSource = Join-Path $Root "dist\AISingingVideo\AISingingVideo.exe"
-if (-not (Test-Path $exeSource)) {
-  throw "Missing exe. Run scripts\build_pyinstaller.ps1 first: $exeSource"
-}
-Copy-Item $exeSource (Join-Path $Out.FullName "AISingingVideo.exe") -Force
 
 $appSource = Join-Path $Root "singing_app"
 $appTarget = Join-Path $Out.FullName "singing_app"

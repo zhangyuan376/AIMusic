@@ -9,7 +9,7 @@ Pomao 角色唱歌视频与声线实验工程。
 - 训练文本
 - 本地样本生成脚本
 - RVC/Applio 工作流说明
-- AI Singing Video 桌面应用源码
+- AI Singing Video 本地 WebUI 源码
 - harness 工作流、安装器配置和打包脚本
 
 不会提交本地大工具包、训练缓存、歌曲素材、模型权重、生成音频、离线 staging 或最终安装包分卷文件。
@@ -31,7 +31,6 @@ voice_pipeline/
 
 singing_app/
   main.py                            harness CLI
-  ui.py                              tkinter 桌面 UI
   web.py                             本地浏览器 Web UI/API
   harness/                           可恢复工作流引擎
   adapters/                          Applio/Demucs/FFmpeg/Edge TTS 适配器
@@ -42,7 +41,6 @@ installer/
   runtime_manifest.json              离线运行时清单
 
 scripts/
-  build_pyinstaller.ps1              构建桌面 exe
   build_offline_staging.ps1          生成完整离线 staging
   verify_offline_staging.ps1         验证 staging 缺失文件
   build_inno_installer.ps1           构建 Inno 分卷安装包
@@ -57,24 +55,32 @@ scripts/
 
 详细步骤见 `voice_pipeline/README.md`。
 
-## 桌面应用
+## 本地 WebUI
+
+新电脑首次搭建环境：
+
+```bat
+setup_env.bat
+```
+
+这会在 `tools\ApplioV3.6.2\env` 创建本地 Python 环境，并安装 `requirements.txt` 里的 Python 依赖。模型权重、歌曲素材、生成音频/视频、完整 Applio 工具包等大文件仍属于本机运行时资产，不会提交到 GitHub；如果运行时检查提示缺失，按提示把对应文件复制到本机路径。
 
 开发环境启动：
 
 ```powershell
-tools\ApplioV3.6.2\env\python.exe -m singing_app.main ui
+tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
 ```
 
 安装包环境启动：
 
 ```bat
-run_singing_app.bat
+run_singing_web.bat
 ```
 
-浏览器调试版：
+兼容旧入口：
 
 ```bat
-run_singing_web.bat
+run_singing_app.bat
 ```
 
 默认打开 `http://127.0.0.1:7860`。
@@ -95,12 +101,6 @@ check_singing_app_runtime.bat --no-pause
 ```
 
 ## 打包
-
-构建 UI exe：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_pyinstaller.ps1
-```
 
 准备完整离线 staging：
 

@@ -29,12 +29,6 @@ def show_status(args: argparse.Namespace) -> None:
         print(path.read_text(encoding="utf-8"))
 
 
-def launch_ui(args: argparse.Namespace) -> None:
-    from singing_app.ui import main as ui_main
-
-    ui_main()
-
-
 def launch_web(args: argparse.Namespace) -> None:
     from singing_app.web import run_web_server
 
@@ -69,9 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="Print job state and artifacts")
     status_parser.add_argument("--job", required=True, help="Path to a job JSON file")
     status_parser.set_defaults(func=show_status)
-
-    ui_parser = subparsers.add_parser("ui", help="Launch the desktop harness UI")
-    ui_parser.set_defaults(func=launch_ui)
 
     web_parser = subparsers.add_parser("web", help="Launch the local browser web UI")
     web_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
