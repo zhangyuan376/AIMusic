@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from singing_app.adapters.applio import ApplioInferAdapter, ApplioTrainAdapter
+from singing_app.adapters.cosyvoice import CosyVoiceAdapter
 from singing_app.adapters.demucs import DemucsAdapter
 from singing_app.adapters.edge_tts import EdgeTtsAdapter
 from singing_app.adapters.ffmpeg import FfmpegAdapter
@@ -27,12 +28,14 @@ class HarnessRunner:
         self.applio_infer = ApplioInferAdapter()
         self.applio_train = ApplioTrainAdapter()
         self.edge_tts = EdgeTtsAdapter()
+        self.cosyvoice = CosyVoiceAdapter()
 
         self.handlers: dict[str, Callable[[StepContext], StepResult]] = {
             "check_runtime": self.check_runtime,
             "create_character": self.create_character,
             "generate_training_text": self.generate_training_text,
             "generate_voice_samples": self.generate_voice_samples,
+            "prepare_recordings": self.prepare_recordings,
             "train_voice_model": self.train_voice_model,
             "import_voice_model": self.import_voice_model,
             "trim_song": self.trim_song,
@@ -141,18 +144,96 @@ class HarnessRunner:
         project = CharacterProject.load(context.artifact_path("character_config"))
         voice = context.job.inputs.get("voice", {})
         sample_dir = Path(project.sample_dir)
-        samples = self.edge_tts.generate_samples(
-            training_text_path=context.artifact_path("training_text"),
-            output_dir=sample_dir,
-            log_path=context.logs_dir / "generate_voice_samples.log",
-            voice=voice.get("tts_voice", "zh-CN-YunxiNeural"),
-            dry_run=context.dry_run,
-        )
+        engine = (voice.get("tts_engine") or "edge_tts").strip()
+
+        if engine == "cosyvoice":
+            reference_audio = voice.get("reference_audio", "")
+            reference_text = voice.get("reference_text", "")
+            if not reference_audio or not reference_text:
+                raise ValueError(
+                    "CosyVoice engine needs a reference recording to clone: "
+                    "set 'reference_audio' (a short clip) and 'reference_text' "
+                    "(its transcript) in the job's voice inputs."
+                )
+            samples = self.cosyvoice.generate_samples(
+                training_text_path=context.artifact_path("training_text"),
+                output_dir=sample_dir,
+                log_path=context.logs_dir / "generate_voice_samples.log",
+                reference_audio=Path(reference_audio),
+                reference_text=reference_text,
+                dry_run=context.dry_run,
+            )
+        elif engine == "edge_tts":
+            samples = self.edge_tts.generate_samples(
+                training_text_path=context.artifact_path("training_text"),
+                output_dir=sample_dir,
+                log_path=context.logs_dir / "generate_voice_samples.log",
+                voice=voice.get("tts_voice", "zh-CN-YunxiNeural"),
+                preset=voice.get("voice_preset"),
+                dry_run=context.dry_run,
+            )
+        else:
+            raise ValueError(
+                f"Unknown tts_engine '{engine}'. Use 'edge_tts' or 'cosyvoice'."
+            )
         return StepResult(
             status="succeeded",
             artifacts={"sample_dir": str(sample_dir), "sample_count": str(len(samples))},
-            message=f"Generated {len(samples)} voice samples.",
+            message=f"Generated {len(samples)} voice samples ({engine}).",
         )
+
+    def prepare_recordings(self, context: StepContext) -> StepResult:
+        """Build a training dataset directly from the user's own recordings.
+
+        Skips TTS entirely — real audio is the highest-quality RVC input. Accepts
+        a directory (all audio files inside) or an explicit list of files via
+        voice.recordings, normalizes each to the training format, and exposes
+        sample_dir so train_voice_model picks it up.
+        """
+        project = CharacterProject.load(context.artifact_path("character_config"))
+        voice = context.job.inputs.get("voice", {})
+        sample_dir = Path(project.sample_dir)
+        sample_rate = int(voice.get("sample_rate", 44100))
+
+        sources = self._collect_recordings(voice.get("recordings", ""))
+        if not sources and not context.dry_run:
+            raise ValueError(
+                "No recordings found. Set 'recordings' in the job's voice inputs "
+                "to a folder of audio files or a list of file paths."
+            )
+
+        outputs: list[Path] = []
+        for index, src in enumerate(sources, start=1):
+            out = sample_dir / f"{index:03d}_recording.wav"
+            self.ffmpeg.to_training_wav(
+                input_path=src,
+                output_path=out,
+                log_path=context.logs_dir / "prepare_recordings.log",
+                sample_rate=sample_rate,
+                dry_run=context.dry_run,
+            )
+            outputs.append(out)
+
+        return StepResult(
+            status="succeeded",
+            artifacts={"sample_dir": str(sample_dir), "sample_count": str(len(outputs))},
+            message=f"Prepared {len(outputs)} recordings for training.",
+        )
+
+    @staticmethod
+    def _collect_recordings(recordings: object) -> list[Path]:
+        audio_exts = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".opus"}
+        if isinstance(recordings, list):
+            return [Path(item) for item in recordings if str(item).strip()]
+        text = str(recordings).strip()
+        if not text:
+            return []
+        path = Path(text)
+        if path.is_dir():
+            return sorted(
+                p for p in path.iterdir() if p.suffix.lower() in audio_exts
+            )
+        return [path]
 
     def train_voice_model(self, context: StepContext) -> StepResult:
         voice = context.job.inputs.get("voice", {})
@@ -307,21 +388,24 @@ class HarnessRunner:
 
     @staticmethod
     def _default_training_text(project: CharacterProject) -> str:
-        description = project.voice_description or "安静、自然、有一点情绪的原创角色声线"
+        description = project.voice_description or "自然、清晰的原创角色声线"
+        # Phonetically varied, persona-neutral script: covers statements,
+        # questions, numbers and a range of finals/tones so the TTS samples
+        # exercise the voice broadly. Character name/description are filled in
+        # so the same template adapts to any character.
         return (
-            f"{project.name} 的声音设定是：{description}。\n"
-            "我说没事，只是今天的风有一点安静。\n"
-            "如果你听见这首歌，不用回头，也不用回答。\n\n"
-            "我把话说得很轻，因为太认真会显得难过。\n"
-            "窗外的雨慢慢落下，我抱着小小的吉他。\n"
-            "每一个尾音都短一点，软一点，像藏起来的心事。\n\n"
-            "啦，啦，啦，啦。\n"
-            "别担心，我会没事。\n"
-            "啦，啦，啦，啦。\n"
-            "只是今晚有一点冷。\n\n"
-            "如果明天你忘了我的名字。\n"
-            "如果故事停在这里。\n"
-            "我也会小声地唱下去，唱到灯光慢慢安静。\n"
+            f"你好，我是 {project.name}。我的声音设定是：{description}。\n"
+            "今天天气晴朗，微风从窗外轻轻吹进来。\n"
+            "请把这段话读得自然一些，不快也不慢。\n\n"
+            "一、二、三、四、五、六、七、八、九、十。\n"
+            "春天的花、夏天的雨、秋天的叶、冬天的雪。\n"
+            "我们一起去公园散步，好不好？\n\n"
+            "这是一句陈述句，用来记录平稳的语气。\n"
+            "这是一句疑问句吗？声调要往上扬一点。\n"
+            "太好了！这是一句感叹句，语气更有力量。\n\n"
+            "无论清晨还是夜晚，无论安静还是热闹，\n"
+            "声音都可以保持清楚、稳定、容易听懂。\n"
+            "谢谢你听我把这段话读完。\n"
         )
 
     def _write_step_state(

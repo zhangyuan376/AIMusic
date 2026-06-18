@@ -42,6 +42,7 @@ installer/
 
 scripts/
   fetch_applio_prereqs.sh            下载 Applio 公开前置模型(镜像友好)
+  setup_cosyvoice.sh                 安装可选的 CosyVoice 2 声线克隆引擎(镜像友好)
   build_offline_staging.ps1          生成完整离线 staging
   verify_offline_staging.ps1         验证 staging 缺失文件
   build_inno_installer.ps1           构建 Inno 分卷安装包
@@ -138,11 +139,36 @@ SAMPLE_RATES="32k 40k 48k" bash scripts/fetch_applio_prereqs.sh
 ### 训练自己的声线(通用流程,不依赖任何预置模型)
 
 1. 创建角色、用 Edge TTS 生成声线样本(`generate_voice_samples`)。
+   - 默认走 `neutral` 预设:音高/音量不偏移、只做必要的格式转换(单声道 44.1k),
+     训练文本是与角色名/声线设定自动拼接的通用、音素多样脚本——不会把任何角色带偏到某个固定音色。
+   - 可在 job 的 `voice` 里设 `voice_preset` 切换预设(目前内置 `neutral`、`pomao_clear`),
+     或用 `training_text` 直接提供自定义训练文本。
 2. `train_voice_model` 用 Applio 自带的标准流程训练:`preprocess → extract → train → index`,产出 `tools/ApplioV3.6.2/logs/<model_name>/` 下的 `.pth` + `.index`。
 3. `import_voice_model` 自动登记训练好的模型(也可手动指定 `model_path`/`index_path`)。
 4. 选歌 → 人声分离 → `convert_vocals` 翻唱 → 混音,输出翻唱音频。
 
 > 若音频处理报 `No module named '_lzma'`,说明当前 Python 编译时缺 `liblzma`;装 `liblzma-dev` 重建 Python,或改用自带 lzma 的 python-build-standalone / conda 解释器。
+
+### 可选:CosyVoice 2 声线克隆引擎
+
+Edge TTS 用的是固定的微软预置嗓音;若想从**一小段真人录音**克隆出真正不同的音色,可启用 CosyVoice 2(零样本克隆,本地离线、GPU 加速)。它是体积较大的外部运行时(代码 + 模型约 6 GB),不入库,一次性安装:
+
+```bash
+bash scripts/setup_cosyvoice.sh
+```
+
+脚本镜像友好(代码走 GitHub 带重试、Python 依赖走清华源、模型走 ModelScope),装到 `tools/CosyVoice/`(独立 venv,不污染 Applio 环境)。可用环境变量覆盖路径:`AI_SINGING_COSYVOICE_ROOT`、`AI_SINGING_COSYVOICE_PYTHON`、`AI_SINGING_COSYVOICE_MODEL`。
+
+启用方式:在 job 的 `voice` 里设
+
+```json
+"tts_engine": "cosyvoice",
+"reference_audio": "<一段 3–10s 的参考录音.wav>",
+"reference_text": "<这段录音对应的文字>"
+```
+
+CosyVoice 会用参考录音的音色把训练文本逐句念出来,生成的样本同样可直接进 `train_voice_model` 训练 RVC。不设 `tts_engine` 时默认仍是 `edge_tts`,无需录音。
+
 
 浏览器版目标流程：
 

@@ -103,6 +103,30 @@ class RuntimePaths:
         return self.applio_root / "core.py"
 
     @property
+    def cosyvoice_root(self) -> Path:
+        """CosyVoice repo root (external runtime asset, not in git)."""
+        override = os.environ.get("AI_SINGING_COSYVOICE_ROOT")
+        if override:
+            return Path(override)
+        return self.app_root / "tools" / "CosyVoice"
+
+    @property
+    def cosyvoice_python(self) -> Path:
+        """Python for the CosyVoice engine (its own venv, isolated from Applio)."""
+        override = os.environ.get("AI_SINGING_COSYVOICE_PYTHON")
+        if override:
+            return Path(override)
+        return _venv_python(self.cosyvoice_root / ".venv")
+
+    @property
+    def cosyvoice_model(self) -> Path:
+        """CosyVoice2-0.5B model directory."""
+        override = os.environ.get("AI_SINGING_COSYVOICE_MODEL")
+        if override:
+            return Path(override)
+        return self.cosyvoice_root / "pretrained_models" / "CosyVoice2-0.5B"
+
+    @property
     def applio_rmvpe(self) -> Path:
         """Pitch-extraction model required for training (extract) and inference."""
         return self.applio_root / "rvc" / "models" / "predictors" / "rmvpe.pt"

@@ -129,6 +129,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 self._send_json({"job_path": str(write_voice_sample_job(payload))})
             elif parsed.path == "/api/create-training-job":
                 self._send_json({"job_path": str(write_training_job(payload))})
+            elif parsed.path == "/api/create-recording-training-job":
+                self._send_json({"job_path": str(write_recording_training_job(payload))})
             elif parsed.path == "/api/create-training-from-voice":
                 self._send_json({"job_path": str(write_training_job_from_voice(payload))})
             elif parsed.path == "/api/bind-trained-voice":
@@ -684,7 +686,15 @@ def write_voice_sample_job(payload: dict[str, Any]) -> Path:
         "steps": ["check_runtime", "create_character", "generate_training_text", "generate_voice_samples", "export_result"],
         "inputs": {
             "character": {"id": character_id, "name": character_name, "root_dir": str(project_dir / "character"), "voice_description": str(payload.get("voice_description", "")).strip()},
-            "voice": {"model_name": f"{character_id}_voice", "tts_voice": str(payload.get("tts_voice", "zh-CN-YunxiNeural")).strip() or "zh-CN-YunxiNeural"},
+            "voice": {
+                "model_name": f"{character_id}_voice",
+                "tts_engine": str(payload.get("tts_engine", "edge_tts")).strip() or "edge_tts",
+                "tts_voice": str(payload.get("tts_voice", "zh-CN-YunxiNeural")).strip() or "zh-CN-YunxiNeural",
+                "voice_preset": str(payload.get("voice_preset", "")).strip(),
+                "training_text": str(payload.get("training_text", "")).strip(),
+                "reference_audio": str(payload.get("reference_audio", "")).strip(),
+                "reference_text": str(payload.get("reference_text", "")).strip(),
+            },
         },
         "settings": {},
     })
@@ -711,6 +721,51 @@ def write_training_job(payload: dict[str, Any]) -> Path:
         "output_dir": str(project_dir),
         "steps": ["check_runtime", "train_voice_model", "export_result"],
         "inputs": {"voice": voice_inputs},
+        "settings": {},
+    })
+    return job_path
+
+
+def write_recording_training_job(payload: dict[str, Any]) -> Path:
+    character_name = _required_text(payload, "character_name")
+    recordings = payload.get("recordings", "")
+    if not (isinstance(recordings, list) and recordings) and not str(recordings).strip():
+        raise ValueError("recordings is required (a folder of audio files or a list of paths).")
+    model_name = _required_text(payload, "model_name")
+    epochs = int(payload.get("epochs", 5))
+    if epochs < 1:
+        raise ValueError("Epochs must be >= 1.")
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_rectrain_{_slugify(model_name)}"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    voice_inputs: dict[str, Any] = {
+        "model_name": model_name,
+        "recordings": recordings,
+        "epochs": epochs,
+    }
+    if payload.get("sample_rate"):
+        voice_inputs["sample_rate"] = int(payload["sample_rate"])
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": [
+            "check_runtime",
+            "create_character",
+            "prepare_recordings",
+            "train_voice_model",
+            "import_voice_model",
+            "export_result",
+        ],
+        "inputs": {
+            "character": {
+                "id": character_id,
+                "name": character_name,
+                "root_dir": str(project_dir / "character"),
+                "voice_description": str(payload.get("voice_description", "")).strip(),
+            },
+            "voice": voice_inputs,
+        },
         "settings": {},
     })
     return job_path
