@@ -22,9 +22,9 @@ from singing_app.runtime_check import checks_as_dicts
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "web_static"
-VOICE_LIBRARY_PATH = RUNTIME.app_root / "singing_app" / "voice_library.json"
-SEPARATION_LIBRARY_PATH = RUNTIME.app_root / "singing_app" / "separation_library.json"
-COVER_LIBRARY_PATH = RUNTIME.app_root / "singing_app" / "cover_library.json"
+VOICE_LIBRARY_PATH = RUNTIME.output_root / "voice_library.json"
+SEPARATION_LIBRARY_PATH = RUNTIME.output_root / "separation_library.json"
+COVER_LIBRARY_PATH = RUNTIME.output_root / "cover_library.json"
 
 
 class WebJobManager:
@@ -561,6 +561,14 @@ def pick_file(kind: str = "any", initial: str = "") -> dict[str, str]:
     root.attributes("-topmost", True)
     try:
         initial_path = Path(initial) if initial else None
+        if kind == "folder":
+            initial_dir = str(initial_path if initial_path and initial_path.is_dir() else RUNTIME.app_root)
+            path = filedialog.askdirectory(
+                title="选择录音文件夹",
+                initialdir=initial_dir,
+                parent=root,
+            )
+            return {"path": str(path) if path else ""}
         initial_dir = str(initial_path.parent if initial_path and initial_path.exists() else RUNTIME.app_root)
         filetypes = _file_dialog_types(kind)
         path = filedialog.askopenfilename(
@@ -628,7 +636,7 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
                 "instrumental_path": separation["instrumental"],
             },
         },
-        "settings": {"rvc": {"pitch": 0, "index_rate": 0.25, "protect": 0.45}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
+        "settings": {"rvc": {"pitch": 0, "index_rate": 0.5, "protect": 0.45, "clean_audio": False}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
     })
     return job_path
 
@@ -650,7 +658,7 @@ def write_separation_job(payload: dict[str, Any]) -> Path:
                 "duration_seconds": float(payload.get("duration_seconds", 30)),
             },
         },
-        "settings": {},
+        "settings": {"separation": {"model": str(payload.get("separation_model", "htdemucs_ft")).strip() or "htdemucs_ft"}},
     })
     return job_path
 

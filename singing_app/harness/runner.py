@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -252,13 +253,32 @@ class HarnessRunner:
             save_every=int(voice.get("save_every", 5)),
             dry_run=context.dry_run,
         )
-        artifacts = {
-            "trained_model_dir": str(trained["model_dir"]),
-            "trained_model_path": str(trained["latest_model"]),
-            "trained_index_path": str(trained["latest_index"]),
-        }
         if not context.dry_run and not trained["latest_model"]:
             raise FileNotFoundError(f"No trained model artifact found for {model_name}.")
+
+        # Applio writes training output to its own logs dir; copy the final
+        # model+index into the unified output/models/<name>/ so every product
+        # lives under one root (RUNTIME.output_root).
+        model_dir = trained["model_dir"]
+        model_path = trained["latest_model"]
+        index_path = trained["latest_index"]
+        if not context.dry_run and model_path:
+            dest_dir = RUNTIME.models_root / model_name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_model = dest_dir / Path(model_path).name
+            shutil.copy2(model_path, dest_model)
+            model_dir = dest_dir
+            model_path = dest_model
+            if index_path:
+                dest_index = dest_dir / Path(index_path).name
+                shutil.copy2(index_path, dest_index)
+                index_path = dest_index
+
+        artifacts = {
+            "trained_model_dir": str(model_dir),
+            "trained_model_path": str(model_path),
+            "trained_index_path": str(index_path),
+        }
         return StepResult(
             status="succeeded",
             artifacts=artifacts,
@@ -321,10 +341,12 @@ class HarnessRunner:
     def separate_vocals(self, context: StepContext) -> StepResult:
         input_path = context.artifact_path("song_clip")
         output_dir = context.workspace / "separated"
+        model = str(context.job.settings.get("separation", {}).get("model", "htdemucs_ft")).strip() or "htdemucs_ft"
         vocals, instrumental = self.demucs.separate_vocals(
             input_path=input_path,
             output_dir=output_dir,
             log_path=context.logs_dir / "separate_vocals.log",
+            model=model,
             dry_run=context.dry_run,
         )
         return StepResult(
@@ -357,8 +379,10 @@ class HarnessRunner:
             index_path=context.artifact_path("index_path"),
             log_path=context.logs_dir / "convert_vocals.log",
             pitch=int(settings.get("pitch", 0)),
-            index_rate=float(settings.get("index_rate", 0.25)),
+            index_rate=float(settings.get("index_rate", 0.5)),
             protect=float(settings.get("protect", 0.45)),
+            clean_audio=bool(settings.get("clean_audio", False)),
+            clean_strength=float(settings.get("clean_strength", 0.3)),
             dry_run=context.dry_run,
         )
         return StepResult(status="succeeded", artifacts={"converted_vocals": str(output_path)})

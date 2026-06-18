@@ -31,7 +31,27 @@ def _venv_python(venv_dir: Path) -> Path:
 class RuntimePaths:
     app_root: Path = APP_ROOT
     voice_pipeline_root: Path = APP_ROOT / "voice_pipeline"
-    projects_root: Path = APP_ROOT / "singing_app" / "projects"
+
+    @property
+    def output_root(self) -> Path:
+        """Single root for everything the app produces at runtime.
+
+        Samples/audio/results live under ``projects/``, trained voice models
+        under ``models/``, and the library index files sit at the root. Override
+        with ``AI_SINGING_OUTPUT_ROOT`` to relocate all products at once.
+        """
+        override = os.environ.get("AI_SINGING_OUTPUT_ROOT")
+        if override:
+            return Path(override).resolve()
+        return self.app_root / "output"
+
+    @property
+    def projects_root(self) -> Path:
+        return self.output_root / "projects"
+
+    @property
+    def models_root(self) -> Path:
+        return self.output_root / "models"
 
     @property
     def applio_root(self) -> Path:

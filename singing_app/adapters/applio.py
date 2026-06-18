@@ -23,8 +23,10 @@ class ApplioInferAdapter:
         index_path: Path,
         log_path: Path,
         pitch: int = 0,
-        index_rate: float = 0.25,
+        index_rate: float = 0.5,
         protect: float = 0.45,
+        clean_audio: bool = False,
+        clean_strength: float = 0.3,
         dry_run: bool = False,
     ) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,7 +58,9 @@ class ApplioInferAdapter:
                 "--f0_autotune",
                 "False",
                 "--clean_audio",
-                "False",
+                str(clean_audio),
+                "--clean_strength",
+                str(clean_strength),
                 "--export_format",
                 "WAV",
                 "--embedder_model",

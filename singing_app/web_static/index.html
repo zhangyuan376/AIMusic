@@ -34,11 +34,19 @@
     .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
     .step { padding: 14px; background: #101520; border: 1px solid #30384a; border-radius: 12px; }
     .step b { display: block; margin-bottom: 5px; color: #91adff; }
+    .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 18px; }
+    .segmented button { margin: 0; padding: 16px 16px; background: #101520; color: #c8d3ef; font-size: 15px; border: 1px solid #30384a; border-radius: 12px; text-align: left; line-height: 1.45; transition: background 0.15s, border-color 0.15s; }
+    .segmented button small { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: #8392b4; }
+    .segmented button.active { background: #4f7cff; color: #fff; border-color: #4f7cff; }
+    .segmented button.active small { color: #dbe4ff; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .sample { padding: 12px; margin: 10px 0; background: #101520; border: 1px solid #30384a; border-radius: 12px; }
     .sample.selected { border-color: #74d99f; box-shadow: 0 0 0 1px #74d99f inset; }
     .sample audio { width: 100%; margin-top: 8px; }
     .muted { color: #98a6c5; }
+    .saved { margin-top: 10px; padding: 10px 12px; border: 1px solid #355442; border-radius: 10px; background: #0f1c18; font-size: 13px; color: #bfe6cf; }
+    .saved b { display: block; margin-bottom: 4px; color: #9be8b8; }
+    .saved .path { color: #e7f3ec; word-break: break-all; user-select: all; }
     .ok { color: #74d99f; }
     .bad { color: #ff8b8b; }
     .busy { display: inline-flex; align-items: center; gap: 8px; color: #91adff; }
@@ -51,54 +59,96 @@
 <body>
   <header>
     <h1>AI Singing Video</h1>
-    <div class="muted">流程：描述角色声线 -> 生成试听 -> 保存历史声线 -> 人声分离 -> 生成翻唱音频。</div>
+    <div class="muted">流程：先准备一个声线（A：描述 + AI 生成，或 B：用真人录音训练），再做人声分离，最后生成翻唱音频。</div>
   </header>
 
   <main>
     <section>
       <div class="steps">
-        <div class="step"><b>1. 设计声线</b><span>输入角色风格，自动生成试听样本。</span></div>
-        <div class="step"><b>2. 试听选择</b><span>听完保存喜欢的声线。</span></div>
-        <div class="step"><b>3. 训练模型</b><span>历史声线训练后自动绑定。</span></div>
-        <div class="step"><b>4. 分离/生成</b><span>先分离人声，再生成翻唱音频。</span></div>
+        <div class="step"><b>① 准备声线</b><span>准备素材（AI 生成或真人录音），再训练模型。</span></div>
+        <div class="step"><b>② 人声分离</b><span>把原唱拆成人声和伴奏。</span></div>
+        <div class="step"><b>③ 生成翻唱</b><span>用声线套用到伴奏，产出翻唱音频。</span></div>
       </div>
 
-      <h2>第 1 步：描述你想要的角色声线</h2>
-      <label>角色名</label>
-      <input id="voice_character_name" placeholder="例如 Pomao">
-      <label>角色/声线风格</label>
-      <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
-      <button id="audition_button" class="big" onclick="generateAuditions()">生成试听声线</button>
-      <div id="audition_status" class="muted" style="margin-top:10px;">还没有生成试听。</div>
-      <div class="muted">提示：生成试听需要 Edge TTS，通常会联网；只想测试流程可在高级区勾选 dry-run。</div>
+      <h2>第一部分 · 准备一个可翻唱的声线</h2>
+      <div class="muted">分两步：先准备训练素材（第 1 步），再训练模型（第 2 步），得到一条可翻唱的「历史声线」。</div>
+      <div class="muted" style="margin-top:6px;">训练素材有两种来源，<b>二选一</b>即可：<b>A</b> 用风格描述让 AI 生成样本（没有录音时用）；<b>B</b> 用你自己的真人录音（音质最好）。两者之后都走同一个「第 2 步：训练」。</div>
     </section>
 
     <section>
-      <h2>第 2 步：试听并保存喜欢的声线</h2>
-      <button class="secondary" onclick="loadSamples()">刷新试听列表</button>
-      <div id="samples" class="muted">生成后这里会出现可播放的试听样本。</div>
-      <div class="muted">这里只负责试听和选择。保存后到第 3 步训练模型，训练完成后才能翻唱。</div>
-    </section>
+      <h2>第 1 步：准备训练素材</h2>
+      <div class="muted">选择一种素材来源（二选一），之后都走同一个「第 2 步：训练」。</div>
+      <div class="segmented">
+        <button id="mat_a_tab" type="button" class="active" onclick="setMaterialMode('a')">素材 A · AI 生成<small>没有录音，用风格描述生成声线</small></button>
+        <button id="mat_b_tab" type="button" onclick="setMaterialMode('b')">素材 B · 真人录音<small>有目标人声录音，音质最好</small></button>
+      </div>
 
-    <section>
-      <h2>第 3 步：选择历史声线并训练模型</h2>
-      <button class="secondary" onclick="loadVoices()">刷新历史声线</button>
-      <label>历史声线</label>
-      <select id="voice_select"></select>
-      <div id="voice_hint" class="muted"></div>
-      <div id="train_voice_panel">
-        <div class="muted">如果历史声线显示“未绑定模型”，点下面的训练按钮。训练完成后系统会自动绑定到这条声线，以后就能直接翻唱。</div>
-        <div class="grid">
-          <div><label>训练轮数</label><input id="voice_train_epochs" type="number" value="5"></div>
-          <div><label>模型名</label><input id="voice_train_model_name" placeholder="自动生成即可"></div>
+      <div id="material_a">
+        <div class="muted">生成一组试听样本，挑一条满意的保存为历史声线，再到第 2 步训练。</div>
+        <label>角色名</label>
+        <input id="voice_character_name" placeholder="例如 Pomao">
+        <label>角色/声线风格</label>
+        <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
+        <label>声线生成引擎</label>
+        <select id="tts_engine" onchange="toggleCosyvoiceFields()">
+          <option value="edge_tts">Edge TTS（联网、微软预置嗓音，无需录音）</option>
+          <option value="cosyvoice">CosyVoice 2 克隆（本地离线、用一小段真人录音克隆音色）</option>
+        </select>
+        <div id="cosyvoice_fields" style="display:none">
+          <label>参考录音（3–10 秒真人清唱/说话，wav）</label>
+          <div class="path-picker">
+            <input id="reference_audio" placeholder="参考录音文件路径">
+            <button type="button" onclick="pickFile('reference_audio', 'audio')">选择录音</button>
+          </div>
+          <label>参考录音对应的文字</label>
+          <textarea id="reference_text" placeholder="把这段参考录音里说/唱的内容原样写下来"></textarea>
+          <div class="muted">CosyVoice 会用这段录音的音色把训练文本逐句念出来。需要先 <code>bash scripts/setup_cosyvoice.sh</code> 安装引擎。</div>
         </div>
-        <button id="train_voice_button" onclick="trainSelectedVoice()">训练这个声线模型</button>
-        <div id="train_voice_status" class="muted">如果声线未绑定模型，点训练即可。训练结果会自动绑定到当前声线。</div>
+        <button id="audition_button" class="big" onclick="generateAuditions()">生成试听声线</button>
+        <div id="audition_status" class="muted" style="margin-top:10px;">还没有生成试听。</div>
+        <button class="secondary" style="margin-top:10px;" onclick="loadSamples()">刷新试听列表</button>
+        <div id="samples" class="muted">生成后这里会出现可播放的试听样本，点「选择这个声线」即可保存为历史声线。</div>
+        <div id="audition_saved" class="saved" style="display:none"></div>
+      </div>
+
+      <div id="material_b" style="display:none">
+        <div class="muted">手头有目标人声的干净录音时用，音质最高。填好后直接到第 2 步训练即可（无需生成、试听）。</div>
+        <label>角色名</label>
+        <input id="rec_character_name" placeholder="例如 我的声线">
+        <label>录音来源（一个文件夹，里面放多条录音）</label>
+        <div class="path-picker">
+          <input id="rec_recordings" placeholder="存放录音的文件夹路径">
+          <button type="button" onclick="pickFile('rec_recordings', 'folder')">选择文件夹</button>
+        </div>
+        <div class="muted">支持 wav/mp3/m4a/flac 等常见格式，文件夹里的所有音频都会用于训练。</div>
       </div>
     </section>
 
     <section>
-      <h2>第 4 步：单独做人声分离</h2>
+      <h2>第 2 步：训练模型（得到可翻唱的历史声线）</h2>
+      <div class="muted" id="train_rule_hint">将根据第 1 步选择的素材方案训练，完成后即可用于翻唱。</div>
+      <div id="voice_pick_group">
+        <button class="secondary" onclick="loadVoices()">刷新历史声线</button>
+        <label>历史声线（素材 A 保存的）</label>
+        <select id="voice_select"></select>
+        <div id="voice_hint" class="muted"></div>
+      </div>
+      <div class="grid">
+        <div><label>训练轮数</label><input id="train_epochs" type="number" value="5"></div>
+        <div><label>模型名</label><input id="train_model_name" placeholder="自动生成即可"></div>
+      </div>
+      <button id="train_button" class="big" onclick="trainModel()">训练模型</button>
+      <div id="train_status" class="muted" style="margin-top:10px;">训练很慢。素材 A 完成后会自动绑定到所选声线；素材 B 完成后会自动存为新的历史声线。</div>
+      <div id="train_saved" class="saved" style="display:none"></div>
+    </section>
+
+    <section>
+      <h2>第二部分 · 翻唱</h2>
+      <div class="muted">第 1–2 步得到的历史声线都能用。先做人声分离，再生成翻唱音频。</div>
+    </section>
+
+    <section>
+      <h2>第 3 步：人声分离</h2>
       <label>分离历史</label>
       <div class="path-picker">
         <select id="separation_select"></select>
@@ -128,11 +178,12 @@
       </div>
       <button id="separate_button" class="big" onclick="separateVocals()">开始人声分离</button>
       <div id="separation_status" class="muted">先把原唱分成人声和伴奏，完成后再生成翻唱音频。</div>
+      <div id="separation_saved" class="saved" style="display:none"></div>
     </section>
 
     <section>
-      <h2>第 5 步：生成翻唱音频</h2>
-      <div class="muted">使用第 4 步分离出来的人声和伴奏，再套用第 3 步选中的声线生成翻唱音频。</div>
+      <h2>第 4 步：生成翻唱音频</h2>
+      <div class="muted">使用第 3 步分离出来的人声和伴奏，再套用第 2 步训练好的历史声线生成翻唱音频。</div>
       <label>历史翻唱</label>
       <div class="path-picker">
         <select id="cover_select"></select>
@@ -184,6 +235,7 @@
     let progressTimer = null;
     let activeTask = "";
     let trainingVoiceId = "";
+    let recTrainInfo = null;
     let currentCoverAudioPath = "";
     let separationJobPath = "";
     let separationReady = false;
@@ -715,7 +767,7 @@
       separationJobPath = item.job_path;
       separationReady = true;
       resetAudioPreview();
-      separationStatus("已使用历史分离结果，可以直接进入第 5 步生成翻唱音频。");
+      separationStatus("已使用历史分离结果，可以直接进入第 4 步生成翻唱音频。");
       setProgress(`已选用分离历史：${item.label || item.id}`, false);
     }
 
@@ -772,16 +824,16 @@
       const voice = voices.find(v => v.id === $("voice_select").value);
       if (!voice) {
         $("voice_hint").textContent = "暂无历史声线。";
-        $("voice_train_model_name").value = "";
+        $("train_model_name").value = "";
         return;
       }
       $("voice_hint").textContent = voice.ready
         ? `可用于翻唱：${voice.description || voice.name}`
         : "这个声线只有试听样本，还没有绑定 .pth/.index。请先训练，训练完成后会自动绑定。";
-      $("voice_train_model_name").value = voice.training_model_name || `${voice.id}_voice`;
-      $("train_voice_status").textContent = voice.training_job_path
+      $("train_model_name").value = voice.training_model_name || `${voice.id}_voice`;
+      $("train_status").textContent = voice.training_job_path
         ? `最近训练任务：${voice.training_job_path}`
-        : "如果声线未绑定模型，点训练即可。训练结果会自动绑定到当前声线。";
+        : "训练很慢。素材 A 完成后会自动绑定到所选声线；素材 B 完成后会自动存为新的历史声线。";
     }
 
     async function generateAuditions() {
@@ -790,11 +842,21 @@
         setProgress("正在准备生成试听声线...", true);
         auditionStatus("正在创建声线任务，请稍等。");
         status("正在创建声线试听任务。");
-        const result = await post("/api/create-voice-job", {
+        const engine = $("tts_engine").value;
+        const payload = {
           character_name: $("voice_character_name").value,
           voice_description: $("voice_description").value,
+          tts_engine: engine,
           tts_voice: "zh-CN-YunxiNeural"
-        });
+        };
+        if (engine === "cosyvoice") {
+          payload.reference_audio = $("reference_audio").value.trim();
+          payload.reference_text = $("reference_text").value.trim();
+          if (!payload.reference_audio || !payload.reference_text) {
+            throw new Error("CosyVoice 克隆需要参考录音和它对应的文字，请先填写。");
+          }
+        }
+        const result = await post("/api/create-voice-job", payload);
         setJob(result.job_path);
         startProgressPolling("audition");
         await runJob(false);
@@ -807,6 +869,90 @@
         auditionStatus(err.message, true);
         status(err.message, true);
         alert(err.message);
+      }
+    }
+
+    function toggleCosyvoiceFields() {
+      const isCosy = $("tts_engine").value === "cosyvoice";
+      $("cosyvoice_fields").style.display = isCosy ? "block" : "none";
+    }
+
+    let materialMode = "a";
+    function setMaterialMode(mode) {
+      materialMode = mode === "b" ? "b" : "a";
+      $("material_a").style.display = materialMode === "a" ? "block" : "none";
+      $("material_b").style.display = materialMode === "b" ? "block" : "none";
+      $("mat_a_tab").classList.toggle("active", materialMode === "a");
+      $("mat_b_tab").classList.toggle("active", materialMode === "b");
+      $("voice_pick_group").style.display = materialMode === "a" ? "block" : "none";
+      $("train_rule_hint").textContent = materialMode === "a"
+        ? "素材 A：训练下方选中的历史声线，完成后自动绑定，即可翻唱。"
+        : "素材 B：直接用第 1 步的真人录音训练，完成后自动存为新的历史声线。";
+    }
+
+    async function trainModel() {
+      if (materialMode === "b") {
+        await trainFromRecordings();
+      } else {
+        await trainSelectedVoice();
+      }
+    }
+
+    async function trainFromRecordings() {
+      try {
+        const characterName = $("rec_character_name").value.trim();
+        const recordings = $("rec_recordings").value.trim();
+        if (!characterName) throw new Error("请先在「素材 B」里填写角色名。");
+        if (!recordings) throw new Error("请先在「素材 B」里选择存放录音的文件夹。");
+        setButtonBusy("train_button", true, "正在训练...", "训练模型");
+        setProgress("正在创建录音训练任务...", true);
+        $("train_status").textContent = "正在创建录音训练任务。";
+        $("train_status").className = "muted";
+        const result = await post("/api/create-recording-training-job", {
+          character_name: characterName,
+          recordings,
+          model_name: $("train_model_name").value.trim(),
+          epochs: $("train_epochs").value
+        });
+        recTrainInfo = { name: `${characterName} 声线`, description: "用真人录音训练的声线" };
+        setJob(result.job_path);
+        startProgressPolling("rectrain");
+        await runJob(true);
+        $("train_status").textContent = "训练任务已启动（素材 B 录音）。训练很慢，完成后会自动存为历史声线。";
+      } catch (err) {
+        stopProgressPolling();
+        setButtonBusy("train_button", false, "", "训练模型");
+        setProgress(err.message, false, true);
+        $("train_status").textContent = err.message;
+        $("train_status").className = "bad";
+        alert(err.message);
+      }
+    }
+
+    async function registerRecordingVoice(artifacts) {
+      const modelPath = artifacts.model_path || artifacts.trained_model_path || "";
+      const indexPath = artifacts.index_path || artifacts.trained_index_path || "";
+      if (!modelPath || !indexPath) {
+        $("train_status").textContent = "训练已结束，但没找到模型文件，无法自动存为历史声线。";
+        $("train_status").className = "bad";
+        return;
+      }
+      try {
+        const info = recTrainInfo || { name: "录音声线", description: "用真人录音训练的声线" };
+        const saved = await post("/api/save-voice", {
+          name: info.name,
+          description: info.description,
+          model_path: modelPath,
+          index_path: indexPath,
+          sample_dir: artifacts.sample_dir || ""
+        });
+        await loadVoices(saved.voice.id);
+        $("train_status").textContent = `训练完成，已存为历史声线“${saved.voice.name}”，可直接翻唱。`;
+        $("train_status").className = "muted";
+        setProgress("录音训练完成并已存为历史声线，可以开始翻唱。", false);
+      } catch (err) {
+        $("train_status").textContent = `训练已结束，但自动存为历史声线失败：${err.message}`;
+        $("train_status").className = "bad";
       }
     }
 
@@ -870,7 +1016,7 @@
         const voice = voices.find(v => v.id === $("voice_select").value);
         if (!voice) throw new Error("请先选择一个历史声线。");
         if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先训练。");
-        if (!separationReady || !separationJobPath) throw new Error("请先完成第 4 步人声分离，再生成翻唱音频。");
+        if (!separationReady || !separationJobPath) throw new Error("请先完成第 3 步人声分离，再生成翻唱音频。");
         const result = await post("/api/create-audio-cover-job", {
           character_name: voice.name,
           voice_description: voice.description,
@@ -927,28 +1073,28 @@
     async function trainSelectedVoice() {
       try {
         const voice = voices.find(v => v.id === $("voice_select").value);
-        if (!voice) throw new Error("请先选择一个历史声线。");
+        if (!voice) throw new Error("请先选择一个历史声线（素材 A），或在素材 B 填入录音文件夹。");
         if (!voice.sample_dir) throw new Error("这个声线没有试听样本目录，请先生成试听并保存声线。");
         trainingVoiceId = voice.id;
-        setButtonBusy("train_voice_button", true, "正在训练...", "训练这个声线模型");
+        setButtonBusy("train_button", true, "正在训练...", "训练模型");
         setProgress("正在创建训练任务...", true);
-        $("train_voice_status").textContent = "正在创建训练任务。";
+        $("train_status").textContent = "正在创建训练任务。";
         const result = await post("/api/create-training-from-voice", {
           voice_id: voice.id,
-          model_name: $("voice_train_model_name").value,
-          epochs: $("voice_train_epochs").value
+          model_name: $("train_model_name").value,
+          epochs: $("train_epochs").value
         });
         setJob(result.job_path);
         await loadVoices(trainingVoiceId);
         startProgressPolling("training");
         await runJob(true);
-        $("train_voice_status").textContent = "训练任务已启动。训练很慢，完成后会自动绑定到当前声线。";
+        $("train_status").textContent = "训练任务已启动（素材 A 声线）。训练很慢，完成后会自动绑定到当前声线。";
       } catch (err) {
         stopProgressPolling();
-        setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
+        setButtonBusy("train_button", false, "", "训练模型");
         setProgress(err.message, false, true);
-        $("train_voice_status").textContent = err.message;
-        $("train_voice_status").className = "bad";
+        $("train_status").textContent = err.message;
+        $("train_status").className = "bad";
         alert(err.message);
       }
     }
@@ -959,13 +1105,13 @@
         await loadVoices(saved.voice.id);
         $("voice_select").value = saved.voice.id;
         updateVoiceHint();
-        $("train_voice_status").className = "muted";
-        $("train_voice_status").textContent = "模型已绑定，这个声线现在可以翻唱。";
+        $("train_status").className = "muted";
+        $("train_status").textContent = "模型已绑定，这个声线现在可以翻唱。";
         setProgress("训练完成并已自动绑定模型，可以开始翻唱。", false);
         return true;
       } catch (err) {
-        $("train_voice_status").textContent = `训练任务已结束，但自动绑定失败：${err.message}`;
-        $("train_voice_status").className = "bad";
+        $("train_status").textContent = `训练任务已结束，但自动绑定失败：${err.message}`;
+        $("train_status").className = "bad";
         setProgress(`训练任务已结束，但自动绑定失败：${err.message}`, false, true);
         return false;
       }
@@ -989,6 +1135,7 @@
       $("state").textContent = JSON.stringify(data.state, null, 2);
       $("artifacts").textContent = summarizeArtifacts(data.artifacts);
       renderResultAudio(data.artifacts);
+      renderSavedPaths(data.artifacts);
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
       if (data.runner && data.runner.running) {
         status("任务正在运行，请等待。");
@@ -1006,17 +1153,22 @@
             loadSamples().catch(() => {});
           }
           if (activeTask === "training") {
-            setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
-            $("train_voice_status").textContent = "训练任务已完成，正在自动绑定模型。";
+            setButtonBusy("train_button", false, "", "训练模型");
+            $("train_status").textContent = "训练任务已完成，正在自动绑定模型。";
             if (trainingVoiceId) {
               bindVoiceById(trainingVoiceId);
             }
+          }
+          if (activeTask === "rectrain") {
+            setButtonBusy("train_button", false, "", "训练模型");
+            $("train_status").textContent = "训练任务已完成，正在存为历史声线。";
+            registerRecordingVoice(data.artifacts || {});
           }
           if (activeTask === "separation") {
             setButtonBusy("separate_button", false, "", "开始人声分离");
             separationReady = true;
             separationJobPath = $("job_path").value;
-            separationStatus("人声分离已完成并保存到历史，可以进入第 5 步生成翻唱音频。");
+            separationStatus("人声分离已完成并保存到历史，可以进入第 4 步生成翻唱音频。");
             loadSeparations().catch(() => {});
           }
           if (activeTask === "cover") {
@@ -1028,7 +1180,7 @@
         if (lastMessage.startsWith("Job failed:")) {
           setProgress(lastMessage, false, true);
           setButtonBusy("audition_button", false, "", "生成试听声线");
-          setButtonBusy("train_voice_button", false, "", "训练这个声线模型");
+          setButtonBusy("train_button", false, "", "训练模型");
           setButtonBusy("separate_button", false, "", "开始人声分离");
           stopProgressPolling();
         }
@@ -1038,6 +1190,7 @@
     function activeTaskLabel(task) {
       if (task === "audition") return "试听声线";
       if (task === "training") return "声线训练";
+      if (task === "rectrain") return "录音训练";
       if (task === "separation") return "人声分离";
       if (task === "cover") return "翻唱音频";
       return "任务";
@@ -1069,6 +1222,29 @@
       ].filter(Boolean).join("\n") || JSON.stringify(artifacts, null, 2);
     }
 
+    function showSaved(id, items) {
+      const el = $(id);
+      if (!el) return;
+      const valid = items.filter(it => it.path);
+      if (!valid.length) { el.style.display = "none"; el.innerHTML = ""; return; }
+      el.innerHTML = "<b>已生成，保存位置：</b>"
+        + valid.map(it => `<div>${it.label}：<span class="path">${it.path}</span></div>`).join("");
+      el.style.display = "block";
+    }
+
+    function renderSavedPaths(a) {
+      a = a || {};
+      showSaved("audition_saved", [{ label: "样本目录", path: a.sample_dir }]);
+      showSaved("train_saved", [
+        { label: "模型", path: a.trained_model_path || a.model_path },
+        { label: "索引", path: a.trained_index_path || a.index_path },
+      ]);
+      showSaved("separation_saved", [
+        { label: "人声", path: a.vocals },
+        { label: "伴奏", path: a.instrumental },
+      ]);
+    }
+
     function renderResultAudio(artifacts) {
       const audioPath = artifacts && (artifacts.result_audio || artifacts.final_mix || "");
       const panel = $("result_audio_panel");
@@ -1085,7 +1261,7 @@
         player.src = src;
         player.load();
       }
-      $("result_audio_path").textContent = audioPath;
+      $("result_audio_path").textContent = `保存位置：${audioPath}`;
       panel.style.display = "block";
     }
 
@@ -1122,6 +1298,7 @@
       status(message, true);
       auditionStatus(message, true);
     });
+    setMaterialMode("a");
     loadDefaults()
       .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), loadSeparations(), loadCovers(), refreshStatus()]))
       .catch(err => {

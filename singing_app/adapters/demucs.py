@@ -15,6 +15,7 @@ class DemucsAdapter:
         input_path: Path,
         output_dir: Path,
         log_path: Path,
+        model: str = "htdemucs_ft",
         dry_run: bool = False,
     ) -> tuple[Path, Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -26,7 +27,7 @@ class DemucsAdapter:
                 "--two-stems",
                 "vocals",
                 "-n",
-                "htdemucs",
+                model,
                 "--out",
                 str(output_dir),
                 str(input_path),
@@ -35,6 +36,6 @@ class DemucsAdapter:
             log_path=log_path,
             dry_run=dry_run,
         )
-        stem_dir = output_dir / "htdemucs" / input_path.stem
+        stem_dir = output_dir / model / input_path.stem
         return stem_dir / "vocals.wav", stem_dir / "no_vocals.wav"
 
