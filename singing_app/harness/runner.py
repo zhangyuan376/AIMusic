@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import wave
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -195,6 +198,7 @@ class HarnessRunner:
         voice = context.job.inputs.get("voice", {})
         sample_dir = Path(project.sample_dir)
         sample_rate = int(voice.get("sample_rate", 44100))
+        denoise = bool(voice.get("preprocess_vocals", False))
 
         sources = self._collect_recordings(voice.get("recordings", ""))
         if not sources and not context.dry_run:
@@ -205,9 +209,23 @@ class HarnessRunner:
 
         outputs: list[Path] = []
         for index, src in enumerate(sources, start=1):
+            cleaned = src
+            if denoise:
+                # Strip background music/noise so only the singer's voice trains
+                # the model. Demucs splits into vocals/no_vocals; we keep vocals.
+                stem_dir = sample_dir / "denoise" / f"{index:03d}"
+                vocals, _ = self.demucs.separate_vocals(
+                    input_path=src,
+                    output_dir=stem_dir,
+                    log_path=context.logs_dir / "prepare_recordings.log",
+                    model=str(voice.get("separation_model", "htdemucs_ft")),
+                    dry_run=context.dry_run,
+                )
+                if not context.dry_run:
+                    cleaned = vocals
             out = sample_dir / f"{index:03d}_recording.wav"
             self.ffmpeg.to_training_wav(
-                input_path=src,
+                input_path=cleaned,
                 output_path=out,
                 log_path=context.logs_dir / "prepare_recordings.log",
                 sample_rate=sample_rate,
@@ -218,7 +236,8 @@ class HarnessRunner:
         return StepResult(
             status="succeeded",
             artifacts={"sample_dir": str(sample_dir), "sample_count": str(len(outputs))},
-            message=f"Prepared {len(outputs)} recordings for training.",
+            message=f"Prepared {len(outputs)} recordings for training"
+            + (" (denoised)." if denoise else "."),
         )
 
     @staticmethod
@@ -240,13 +259,16 @@ class HarnessRunner:
         voice = context.job.inputs.get("voice", {})
         dataset = Path(voice.get("dataset_path", context.artifacts.get("sample_dir", "")))
         model_name = voice["model_name"]
-        epochs = int(voice.get("epochs", 10))
+        sample_rate = int(voice.get("sample_rate", 40000))
+
+        epochs, epochs_note = self._resolve_epochs(voice.get("epochs", "auto"), dataset, context.dry_run)
+
         trained = self.applio_train.train(
             model_name=model_name,
             dataset_path=dataset,
             log_path=context.logs_dir / "train_voice_model.log",
             epochs=epochs,
-            sample_rate=int(voice.get("sample_rate", 40000)),
+            sample_rate=sample_rate,
             gpu=str(voice.get("gpu", "0")),
             batch_size=int(voice.get("batch_size", 8)),
             cpu_cores=int(voice.get("cpu_cores", 4)),
@@ -278,12 +300,99 @@ class HarnessRunner:
             "trained_model_dir": str(model_dir),
             "trained_model_path": str(model_path),
             "trained_index_path": str(index_path),
+            "trained_checkpoints": ", ".join(
+                Path(p).name for p in trained.get("checkpoints", [])
+            ),
+            "trained_epochs": str(epochs),
         }
         return StepResult(
             status="succeeded",
             artifacts=artifacts,
-            message=f"Training finished for {model_name}.",
+            message=f"Training finished for {model_name} ({epochs} epochs, {epochs_note}).",
         )
+
+    def _resolve_epochs(
+        self, raw: object, dataset: Path, dry_run: bool
+    ) -> tuple[int, str]:
+        """Return (epochs, human note). 'auto' picks epochs from data length.
+
+        More data tolerates (and needs) more epochs; little data overfits fast,
+        so short datasets get fewer epochs. A fixed number can't be safe for all
+        data sizes, so the default scales with the measured audio duration.
+        """
+        if str(raw).strip().lower() != "auto":
+            return int(raw), "manual"
+        if dry_run:
+            return 100, "auto (dry-run placeholder)"
+        minutes = self._dataset_duration_minutes(dataset)
+        epochs = self._recommend_epochs(minutes)
+        return epochs, f"auto from {minutes:.1f} min of audio"
+
+    @staticmethod
+    def _recommend_epochs(minutes: float) -> int:
+        # Ascending (max_minutes, epochs) thresholds. Tuned to RVC community
+        # experience: tiny datasets overfit, so they get few epochs; larger
+        # clean datasets can train longer before overfitting.
+        ladder = [
+            (1.5, 60),
+            (3.0, 90),
+            (6.0, 130),
+            (12.0, 180),
+            (25.0, 240),
+            (50.0, 300),
+        ]
+        for max_minutes, epochs in ladder:
+            if minutes < max_minutes:
+                return epochs
+        return 360
+
+    def _dataset_duration_minutes(self, dataset: Path) -> float:
+        audio_exts = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".opus"}
+        if not dataset.exists():
+            return 0.0
+        total_seconds = 0.0
+        for path in dataset.rglob("*"):
+            # Skip our own intermediate denoise outputs so they aren't counted
+            # twice alongside the normalized training files.
+            if "denoise" in path.parts:
+                continue
+            if path.is_file() and path.suffix.lower() in audio_exts:
+                total_seconds += self._probe_duration_seconds(path)
+        return total_seconds / 60.0
+
+    def _probe_duration_seconds(self, path: Path) -> float:
+        try:
+            result = subprocess.run(
+                [
+                    str(RUNTIME.ffprobe),
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            value = result.stdout.strip()
+            if value:
+                return float(value)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        # Fallback for plain PCM wav when ffprobe is unavailable or failed.
+        if path.suffix.lower() == ".wav":
+            try:
+                with closing(wave.open(str(path), "rb")) as handle:
+                    frames = handle.getnframes()
+                    rate = handle.getframerate()
+                    if rate:
+                        return frames / float(rate)
+            except (OSError, wave.Error):
+                pass
+        return 0.0
 
     def import_voice_model(self, context: StepContext) -> StepResult:
         voice = context.job.inputs.get("voice", {})
@@ -429,7 +538,22 @@ class HarnessRunner:
             "太好了！这是一句感叹句，语气更有力量。\n\n"
             "无论清晨还是夜晚，无论安静还是热闹，\n"
             "声音都可以保持清楚、稳定、容易听懂。\n"
-            "谢谢你听我把这段话读完。\n"
+            "谢谢你听我把这段话读完。\n\n"
+            "知道、日子、吃饭、唱歌、上山、入水，\n"
+            "这些词把卷舌音和平舌音都念一遍。\n"
+            "白天与黑夜，前面和后面，里里外外都说清楚。\n\n"
+            "二零二五年，三百六十五天，每一天都值得记录。\n"
+            "电话号码是一三八，七九零，二四六八。\n"
+            "价格是九块九，重量是两千克，距离是十公里。\n\n"
+            "她轻声说：别担心，慢慢来，一切都会好起来。\n"
+            "他大声喊：快看，那边的烟花真漂亮！\n"
+            "雨停了，云散了，远处传来悠扬的歌声。\n\n"
+            "啊、喔、鹅、衣、乌、迂，六个单韵母依次念出。\n"
+            "安、恩、昂、英、翁，这些后鼻音也要饱满。\n"
+            "风轻轻、水缓缓、心暖暖，叠词读得连贯又自然。\n\n"
+            "从早到晚，由近及远，声音始终清楚而温和。\n"
+            "无论高音还是低音，都尽量稳住气息，不抖不飘。\n"
+            "好了，这段练习就到这里，辛苦你陪我读完。\n"
         )
 
     def _write_step_state(

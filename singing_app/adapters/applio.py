@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from singing_app.adapters.command import run_command
@@ -189,11 +190,36 @@ class ApplioTrainAdapter:
         )
 
         model_dir = self.applio_root / "logs" / model_name
+        checkpoints = self._epoch_checkpoints(model_dir, model_name)
         return {
             "model_dir": model_dir,
-            "latest_model": self._latest_file(model_dir, f"{model_name}_*e_*s.pth"),
+            "latest_model": checkpoints[-1] if checkpoints else Path(""),
             "latest_index": self._latest_file(model_dir, "*.index"),
+            "checkpoints": checkpoints,
         }
+
+    @staticmethod
+    def _epoch_checkpoints(directory: Path, model_name: str) -> list[Path]:
+        """Return saved weight checkpoints ordered by trained epoch (ascending).
+
+        Applio writes ``{model_name}_{epoch}e_{step}s.pth`` per save interval.
+        Ordering by the parsed epoch number is stable even after the files are
+        copied elsewhere (which resets mtime), so the last item is the most
+        fully trained checkpoint.
+        """
+        if not directory.exists():
+            return []
+
+        def epoch_of(path: Path) -> int:
+            match = re.search(rf"{re.escape(model_name)}_(\d+)e_\d+s", path.stem)
+            return int(match.group(1)) if match else -1
+
+        matches = [
+            path
+            for path in directory.glob(f"{model_name}_*e_*s.pth")
+            if path.is_file() and epoch_of(path) >= 0
+        ]
+        return sorted(matches, key=epoch_of)
 
     @staticmethod
     def _latest_file(directory: Path, pattern: str) -> Path:

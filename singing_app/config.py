@@ -123,6 +123,16 @@ class RuntimePaths:
         return self.applio_root / "core.py"
 
     @property
+    def ffprobe(self) -> Path:
+        override = os.environ.get("AI_SINGING_FFPROBE")
+        if override:
+            return Path(override)
+        if IS_WINDOWS:
+            return self.applio_root / "ffprobe.exe"
+        found = shutil.which("ffprobe")
+        return Path(found) if found else Path("ffprobe")
+
+    @property
     def cosyvoice_root(self) -> Path:
         """CosyVoice repo root (external runtime asset, not in git)."""
         override = os.environ.get("AI_SINGING_COSYVOICE_ROOT")
@@ -162,6 +172,26 @@ class RuntimePaths:
             / "contentvec"
             / "pytorch_model.bin"
         )
+
+    @property
+    def hifigan_pretraineds_root(self) -> Path:
+        """Where Applio's HiFi-GAN training base models (f0G/f0D) live."""
+        return self.applio_root / "rvc" / "models" / "pretraineds" / "hifi-gan"
+
+    @property
+    def available_training_sample_rates(self) -> list[int]:
+        """Sample rates that have a usable HiFi-GAN base (both f0G and f0D).
+
+        Training with --pretrained True fails without a matching base, so the
+        UI must only offer rates whose base weights are present on this machine.
+        """
+        root = self.hifigan_pretraineds_root
+        rates = []
+        for sr in (32000, 40000, 48000):
+            tag = f"{str(sr)[:2]}k"
+            if (root / f"f0G{tag}.pth").exists() and (root / f"f0D{tag}.pth").exists():
+                rates.append(sr)
+        return rates or [40000]
 
     @property
     def default_model(self) -> Path:

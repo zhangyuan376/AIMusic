@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -104,6 +105,9 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/open-output":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json(open_output_folder(job_path))
+            elif parsed.path == "/api/checkpoints":
+                voice_id = parse_qs(parsed.query).get("voice_id", [""])[0]
+                self._send_json(list_voice_checkpoints(voice_id))
             elif parsed.path == "/api/pick-file":
                 query = parse_qs(parsed.query)
                 self._send_json(pick_file(
@@ -129,12 +133,14 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 self._send_json({"job_path": str(write_voice_sample_job(payload))})
             elif parsed.path == "/api/create-training-job":
                 self._send_json({"job_path": str(write_training_job(payload))})
-            elif parsed.path == "/api/create-recording-training-job":
-                self._send_json({"job_path": str(write_recording_training_job(payload))})
+            elif parsed.path == "/api/create-recording-prepare-job":
+                self._send_json({"job_path": str(write_recording_prepare_job(payload))})
             elif parsed.path == "/api/create-training-from-voice":
                 self._send_json({"job_path": str(write_training_job_from_voice(payload))})
             elif parsed.path == "/api/bind-trained-voice":
                 self._send_json({"voice": bind_trained_voice(payload)})
+            elif parsed.path == "/api/rebind-checkpoint":
+                self._send_json({"voice": rebind_checkpoint(payload)})
             elif parsed.path == "/api/save-voice":
                 self._send_json({"voice": save_voice_selection(payload)})
             elif parsed.path == "/api/run-job":
@@ -237,6 +243,7 @@ def default_values() -> dict[str, str]:
         "default_song": str(RUNTIME.voice_pipeline_root / "input_song" / "cancel_send_20s_30s_test.wav"),
         "default_sample_dir": str(RUNTIME.projects_root / "demo_character_voice_samples" / "character" / "voice" / "samples"),
         "default_voice_id": "pomao_default",
+        "available_sample_rates": RUNTIME.available_training_sample_rates,
     }
 
 
@@ -329,14 +336,17 @@ def find_voice(voice_id: str) -> dict[str, Any]:
 def write_training_job_from_voice(payload: dict[str, Any]) -> Path:
     voice = find_voice(_required_text(payload, "voice_id"))
     sample_dir = _required_existing_path(str(voice.get("sample_dir", "")), "voice sample_dir")
-    model_name = str(payload.get("model_name", f"{voice['id']}_voice")).strip() or f"{voice['id']}_voice"
-    epochs = int(payload.get("epochs", 5))
+    model_name = str(payload.get("model_name", f"{voice['id']}_voice_model")).strip() or f"{voice['id']}_voice_model"
+    epochs = _parse_epochs(payload.get("epochs"))
     job_path = write_training_job({
         "character_name": voice.get("name", voice["id"]),
         "sample_dir": str(sample_dir),
         "model_name": model_name,
         "epochs": epochs,
         "voice_id": voice["id"],
+        "sample_rate": payload.get("sample_rate"),
+        "batch_size": payload.get("batch_size"),
+        "save_every": payload.get("save_every"),
     })
     voice["training_job_path"] = str(job_path)
     voice["training_model_name"] = model_name
@@ -369,6 +379,83 @@ def bind_trained_voice(payload: dict[str, Any]) -> dict[str, Any]:
     voice["index_path"] = str(index_path)
     voice["ready"] = True
     voice["training_job_path"] = str(job_path)
+    return update_voice(voice)
+
+
+def _voice_model_name(voice: dict[str, Any]) -> str:
+    """Resolve the Applio model name for a voice's training checkpoints.
+
+    Prefer the explicit training_model_name recorded at training time; fall
+    back to the directory the bound model lives in (Applio names each
+    checkpoint ``<model_name>_<N>e_<M>s.pth``).
+    """
+    name = str(voice.get("training_model_name", "")).strip()
+    if name:
+        return name
+    model_path = str(voice.get("model_path", "")).strip()
+    if model_path:
+        return Path(model_path).parent.name
+    return ""
+
+
+def _checkpoint_epoch(path: Path, model_name: str) -> int:
+    match = re.search(rf"{re.escape(model_name)}_(\d+)e_\d+s", path.stem)
+    return int(match.group(1)) if match else -1
+
+
+def list_voice_checkpoints(voice_id: str) -> dict[str, Any]:
+    """List every saved training checkpoint for a voice's model.
+
+    Checkpoints live in Applio's ``logs/<model_name>/`` and are the actionable
+    way to pick an earlier epoch when the final one is overfit. The currently
+    bound checkpoint is flagged so the UI can mark it.
+    """
+    voice = find_voice(voice_id)
+    model_name = _voice_model_name(voice)
+    bound_model = str(voice.get("model_path", "")).strip()
+    bound_name = Path(bound_model).name if bound_model else ""
+    checkpoints: list[dict[str, Any]] = []
+    if model_name:
+        logs_dir = RUNTIME.applio_root / "logs" / model_name
+        if logs_dir.exists():
+            matches = [
+                p for p in logs_dir.glob(f"{model_name}_*e_*s.pth")
+                if p.is_file() and _checkpoint_epoch(p, model_name) >= 0
+            ]
+            for path in sorted(matches, key=lambda p: _checkpoint_epoch(p, model_name)):
+                checkpoints.append({
+                    "name": path.name,
+                    "epoch": _checkpoint_epoch(path, model_name),
+                    "path": str(path),
+                    "bound": path.name == bound_name,
+                })
+    return {
+        "voice_id": voice_id,
+        "model_name": model_name,
+        "bound_model_path": bound_model,
+        "checkpoints": checkpoints,
+    }
+
+
+def rebind_checkpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    """Point a voice at an earlier training checkpoint.
+
+    Copies the chosen ``.pth`` into ``output/models/<model_name>/`` (alongside
+    the shared ``.index``) and updates the voice's ``model_path``. The index is
+    epoch-independent, so it is reused as-is.
+    """
+    voice = find_voice(_required_text(payload, "voice_id"))
+    model_name = _voice_model_name(voice)
+    checkpoint = _required_existing_file(str(payload.get("checkpoint_path", "")), "checkpoint")
+    if _checkpoint_epoch(checkpoint, model_name) < 0:
+        raise ValueError(f"Not a checkpoint for model '{model_name}': {checkpoint.name}")
+    dest_dir = RUNTIME.models_root / model_name
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / checkpoint.name
+    if checkpoint.resolve() != dest.resolve():
+        shutil.copy2(checkpoint, dest)
+    voice["model_path"] = str(dest)
+    voice["ready"] = bool(str(voice.get("index_path", "")).strip())
     return update_voice(voice)
 
 
@@ -636,7 +723,16 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
                 "instrumental_path": separation["instrumental"],
             },
         },
-        "settings": {"rvc": {"pitch": 0, "index_rate": 0.5, "protect": 0.45, "clean_audio": False}, "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12}},
+        "settings": {
+            "rvc": {
+                "pitch": int(payload.get("pitch", 0) or 0),
+                "index_rate": float(payload.get("index_rate", 0.7) or 0.7),
+                "protect": float(payload.get("protect", 0.45) or 0.45),
+                "clean_audio": bool(payload.get("clean_audio", False)),
+                "clean_strength": float(payload.get("clean_strength", 0.3) or 0.3),
+            },
+            "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12},
+        },
     })
     return job_path
 
@@ -709,13 +805,40 @@ def write_voice_sample_job(payload: dict[str, Any]) -> Path:
     return job_path
 
 
+def _parse_epochs(value: Any) -> Any:
+    """Normalize an epochs payload value to an int or the sentinel 'auto'.
+
+    Empty/missing/'auto' means let the runner pick epochs from data length.
+    """
+    if value is None or str(value).strip() == "" or str(value).strip().lower() == "auto":
+        return "auto"
+    epochs = int(value)
+    if epochs < 1:
+        raise ValueError("Epochs must be >= 1.")
+    return epochs
+
+
+def _apply_train_tuning(voice_inputs: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Thread optional quality/perf training knobs into voice_inputs.
+
+    Only set keys the caller provided so runner defaults stay authoritative.
+    Sample rate is the exception: when unset, default to the highest rate that
+    has a usable HiFi-GAN base on this machine (quality-optimal yet safe — it
+    never selects a rate whose pretrained weights are missing).
+    """
+    for key in ("sample_rate", "batch_size", "save_every"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            voice_inputs[key] = int(value)
+    if "sample_rate" not in voice_inputs:
+        voice_inputs["sample_rate"] = max(RUNTIME.available_training_sample_rates)
+
+
 def write_training_job(payload: dict[str, Any]) -> Path:
     character_name = _required_text(payload, "character_name")
     sample_dir = _required_path(payload, "sample_dir")
     model_name = _required_text(payload, "model_name")
-    epochs = int(payload.get("epochs", 5))
-    if epochs < 1:
-        raise ValueError("Epochs must be >= 1.")
+    epochs = _parse_epochs(payload.get("epochs"))
     character_id = _slugify(character_name)
     job_id = f"{character_id}_train_{_slugify(model_name)}"
     project_dir = RUNTIME.projects_root / job_id
@@ -724,6 +847,7 @@ def write_training_job(payload: dict[str, Any]) -> Path:
     voice_id = str(payload.get("voice_id", "")).strip()
     if voice_id:
         voice_inputs["voice_id"] = voice_id
+    _apply_train_tuning(voice_inputs, payload)
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
@@ -734,26 +858,28 @@ def write_training_job(payload: dict[str, Any]) -> Path:
     return job_path
 
 
-def write_recording_training_job(payload: dict[str, Any]) -> Path:
+def write_recording_prepare_job(payload: dict[str, Any]) -> Path:
+    """Step 1 for recordings: normalize them into a training-ready sample_dir.
+
+    Mirrors what AI-generated auditions produce, so step 2 (training) is a
+    single unified flow for both material sources — no per-source branching.
+    Denoising (demucs) happens here, up front, so the resulting wavs are clean
+    and ready to train on directly.
+    """
     character_name = _required_text(payload, "character_name")
     recordings = payload.get("recordings", "")
     if not (isinstance(recordings, list) and recordings) and not str(recordings).strip():
         raise ValueError("recordings is required (a folder of audio files or a list of paths).")
-    model_name = _required_text(payload, "model_name")
-    epochs = int(payload.get("epochs", 5))
-    if epochs < 1:
-        raise ValueError("Epochs must be >= 1.")
     character_id = _slugify(character_name)
-    job_id = f"{character_id}_rectrain_{_slugify(model_name)}"
+    job_id = f"{character_id}_recprep"
     project_dir = RUNTIME.projects_root / job_id
     job_path = _job_path(job_id)
-    voice_inputs: dict[str, Any] = {
-        "model_name": model_name,
-        "recordings": recordings,
-        "epochs": epochs,
-    }
-    if payload.get("sample_rate"):
-        voice_inputs["sample_rate"] = int(payload["sample_rate"])
+    voice_inputs: dict[str, Any] = {"recordings": recordings}
+    if payload.get("preprocess_vocals"):
+        voice_inputs["preprocess_vocals"] = True
+    separation_model = str(payload.get("separation_model", "")).strip()
+    if separation_model:
+        voice_inputs["separation_model"] = separation_model
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
@@ -761,8 +887,6 @@ def write_recording_training_job(payload: dict[str, Any]) -> Path:
             "check_runtime",
             "create_character",
             "prepare_recordings",
-            "train_voice_model",
-            "import_voice_model",
             "export_result",
         ],
         "inputs": {
@@ -826,6 +950,12 @@ def _content_type(path: Path) -> str:
 
 
 def _slugify(value: str) -> str:
+    try:
+        from pypinyin import lazy_pinyin
+
+        value = "".join(lazy_pinyin(value))
+    except Exception:
+        pass
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("_").lower() or "character"
 
 

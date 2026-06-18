@@ -22,12 +22,16 @@ class TtsVariant:
 # particular character. {speed} is substituted from the variant.
 NEUTRAL_FILTER = "atempo={speed},aresample=44100"
 
-# Default preset: neutral pitch/volume, slight rate spread for natural prosody
-# variety in the training set without biasing the voice toward any character.
+# Default preset: neutral pitch/volume, a spread of speaking rates for natural
+# prosody variety in the training set without biasing the voice toward any
+# character. Pitch is left neutral on purpose — shifting it would color the
+# timbre away from the source TTS voice.
 DEFAULT_VARIANTS = [
     TtsVariant("v1"),
-    TtsVariant("v2", rate="-5%"),
-    TtsVariant("v3", rate="+5%"),
+    TtsVariant("v2", rate="-10%"),
+    TtsVariant("v3", rate="-5%"),
+    TtsVariant("v4", rate="+5%"),
+    TtsVariant("v5", rate="+10%"),
 ]
 
 # Opt-in preset reproducing the original Pomao "clear small voice" shaping
