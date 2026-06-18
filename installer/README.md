@@ -22,7 +22,6 @@ Expected installed layout:
 ```text
 AISingingVideo/
   run_singing_web.bat
-  run_singing_app.bat
   check_singing_app_runtime.bat
   tools/
     ApplioV3.6.2/

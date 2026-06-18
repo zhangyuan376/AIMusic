@@ -29,7 +29,6 @@ d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
 ```
 
 The web UI opens `http://127.0.0.1:7860` and exposes the same harness flow through local JSON APIs. It is intended for easier debugging in a browser.
-`run_singing_app.bat` is kept as a backward-compatible launcher and now starts the same Web UI.
 
 The browser workflow is designed for non-technical use:
 

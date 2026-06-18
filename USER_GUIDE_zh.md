@@ -8,12 +8,6 @@
 run_singing_web.bat
 ```
 
-旧入口仍然可用，也会启动同一个 WebUI：
-
-```bat
-run_singing_app.bat
-```
-
 浏览器版默认打开：
 
 ```text

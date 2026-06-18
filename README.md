@@ -79,12 +79,6 @@ tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
 run_singing_web.bat
 ```
 
-兼容旧入口：
-
-```bat
-run_singing_app.bat
-```
-
 默认打开 `http://127.0.0.1:7860`。
 
 ### Linux / macOS

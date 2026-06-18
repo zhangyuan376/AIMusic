@@ -10,7 +10,6 @@ $ManifestPath = Join-Path $Root "installer\runtime_manifest.json"
 $Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
 
 $required = @()
-$required += "run_singing_app.bat"
 $required += "run_singing_web.bat"
 $required += "check_singing_app_runtime.bat"
 $required += "USER_GUIDE_zh.md"

@@ -121,7 +121,6 @@
           <button type="button" onclick="pickFile('rec_recordings', 'folder')">选择文件夹</button>
         </div>
         <div class="muted">支持 wav/mp3/m4a/flac 等常见格式，文件夹里的所有音频都会用于训练。</div>
-        <div style="margin-top:8px;"><label><input id="rec_preprocess_vocals" type="checkbox"> 录音里有背景音乐/杂音时勾选：先用 demucs 提纯人声再训练（CPU 上较慢）</label></div>
         <button id="recprep_button" class="big" style="margin-top:12px;" onclick="prepareRecordings()">准备训练素材</button>
         <div id="recprep_status" class="muted" style="margin-top:10px;">把录音整理成训练就绪的样本，完成后会自动存为待训练声线，再到第 2 步训练。</div>
       </div>
@@ -1041,8 +1040,7 @@
         $("recprep_status").className = "muted";
         const result = await post("/api/create-recording-prepare-job", {
           character_name: characterName,
-          recordings,
-          preprocess_vocals: $("rec_preprocess_vocals").checked
+          recordings
         });
         recTrainInfo = { name: `${characterName} 声线`, description: "用真人录音准备的声线" };
         setJob(result.job_path);
