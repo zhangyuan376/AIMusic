@@ -17,6 +17,7 @@ from singing_app.adapters.ffmpeg import FfmpegAdapter
 from singing_app.characters.project import CharacterProject, VoiceModelRef
 from singing_app.config import RUNTIME
 from singing_app.harness.models import HarnessJob, StepContext, StepResult
+from singing_app.separation_models import resolve_separation_model
 
 
 class HarnessRunner:
@@ -269,7 +270,7 @@ class HarnessRunner:
             log_path=context.logs_dir / "train_voice_model.log",
             epochs=epochs,
             sample_rate=sample_rate,
-            gpu=str(voice.get("gpu", "0")),
+            gpu=str(voice.get("gpu", "auto")),
             batch_size=int(voice.get("batch_size", 8)),
             cpu_cores=int(voice.get("cpu_cores", 4)),
             save_every=int(voice.get("save_every", 5)),
@@ -451,6 +452,12 @@ class HarnessRunner:
         input_path = context.artifact_path("song_clip")
         output_dir = context.workspace / "separated"
         model = str(context.job.settings.get("separation", {}).get("model", "htdemucs_ft")).strip() or "htdemucs_ft"
+        spec = resolve_separation_model(model)
+        engine = spec["engine"] if spec else "demucs"
+        if engine != "demucs":
+            raise RuntimeError(
+                f"分离引擎「{engine}」尚未接入运行时，请先安装并切换到 Demucs 模型（如 htdemucs_ft）。"
+            )
         vocals, instrumental = self.demucs.separate_vocals(
             input_path=input_path,
             output_dir=output_dir,

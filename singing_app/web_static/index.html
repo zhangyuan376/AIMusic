@@ -47,12 +47,17 @@
     .saved { margin-top: 10px; padding: 10px 12px; border: 1px solid #355442; border-radius: 10px; background: #0f1c18; font-size: 13px; color: #bfe6cf; }
     .saved b { display: block; margin-bottom: 4px; color: #9be8b8; }
     .saved .path { color: #e7f3ec; word-break: break-all; user-select: all; }
+    .download-link { display: inline-block; margin: 6px 8px 0 0; padding: 4px 12px; font-size: 13px; color: #cfe8ff; background: #28405c; border-radius: 8px; text-decoration: none; }
+    .download-link:hover { background: #335078; }
+    .saved .download-link { padding: 1px 8px; margin: 0 0 0 6px; }
     .ok { color: #74d99f; }
     .bad { color: #ff8b8b; }
     .busy { display: inline-flex; align-items: center; gap: 8px; color: #91adff; }
     .spinner { width: 15px; height: 15px; border: 2px solid #53617c; border-top-color: #91adff; border-radius: 50%; animation: spin 0.8s linear infinite; }
     .progress-box { margin-top: 12px; padding: 12px; border-radius: 12px; background: #101520; border: 1px solid #30384a; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-bar { margin-top: 10px; height: 10px; border-radius: 6px; background: #1c2433; border: 1px solid #30384a; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #4f6bff, #91adff); transition: width 0.4s ease; }
     @media (max-width: 860px) { .steps, .grid, .path-picker { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -189,6 +194,10 @@
       <button type="button" class="secondary" onclick="useSelectedSeparation()">使用这个分离结果</button>
       <div id="separation_history_status" class="muted">分离完成后会自动保存到这里，下次可直接复用。</div>
 
+      <label>分离模型</label>
+      <select id="separation_model_select" onchange="renderSeparationModelInfo()"></select>
+      <div id="separation_model_info" class="muted">加载模型列表中...</div>
+
       <label>音乐文件路径</label>
       <div class="path-picker">
         <input id="song_path" placeholder="点击右侧选择音乐文件">
@@ -199,6 +208,7 @@
         <button type="button" class="secondary" onclick="recommendChorusRange()">智能推荐高潮片段</button>
         <button type="button" class="secondary" onclick="playSelectedRange()">播放选中片段</button>
         <audio id="song_player" controls></audio>
+        <a id="song_download" class="download-link" download style="display:none;">下载这首歌到本地</a>
         <div class="waveform-wrap">
           <canvas id="song_waveform"></canvas>
         </div>
@@ -227,7 +237,14 @@
         <summary>翻唱高级设置（音色/音准微调）</summary>
         <div class="muted" style="margin:8px 0;">变调最关键：男声翻女声填 +12，女声翻男声填 -12，同性别留 0。其余默认即可。</div>
         <div class="grid">
-          <div><label>变调（半音）</label><input id="cover_pitch" type="number" value="0"></div>
+          <div>
+            <label>变调（半音）</label>
+            <div class="path-picker">
+              <input id="cover_pitch" type="number" value="0">
+              <button type="button" class="secondary" id="auto_pitch_button" onclick="autoDetectPitch()">自动检测</button>
+            </div>
+            <div id="auto_pitch_info" class="muted" style="margin-top:6px;">点「自动检测」会比较原唱与你声线的音高，自动推荐变调。</div>
+          </div>
           <div><label>音色还原 index_rate（0–1）</label><input id="cover_index_rate" type="number" step="0.05" min="0" max="1" value="0.7"></div>
         </div>
         <div class="grid">
@@ -240,6 +257,7 @@
       <div id="result_audio_panel" class="result-audio" style="display:none;">
         <b>翻唱音频</b>
         <audio id="result_audio_player" controls></audio>
+        <a id="result_audio_download" class="download-link" download>下载到本地</a>
         <div id="result_audio_path" class="muted"></div>
       </div>
       <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
@@ -344,8 +362,10 @@
       button.innerHTML = busy ? `<span class="busy"><span class="spinner"></span>${text}</span>` : idleText;
     }
 
-    function setProgress(text, busy = false, bad = false) {
-      $("task_progress").innerHTML = busy ? `<span class="busy"><span class="spinner"></span>${text}</span>` : text;
+    function setProgress(text, busy = false, bad = false, percent = null) {
+      const head = busy ? `<span class="busy"><span class="spinner"></span>${text}</span>` : text;
+      const bar = percent === null ? "" : `<div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>`;
+      $("task_progress").innerHTML = head + bar;
       $("task_progress").className = bad ? "progress-box bad" : "progress-box muted";
     }
 
@@ -378,6 +398,11 @@
         const url = songFileUrl();
         $("song_player").src = url;
         $("song_player").load();
+        const songDl = $("song_download");
+        if (songDl) {
+          songDl.href = downloadUrl($("song_path").value.trim());
+          songDl.style.display = "inline";
+        }
         waveformStatus("正在读取音频并绘制时域波形...");
         const res = await fetch(url);
         if (!res.ok) throw new Error(`读取音频失败：${res.statusText}`);
@@ -799,6 +824,38 @@
       updateSeparationHint();
     }
 
+    let separationModels = [];
+
+    async function loadSeparationModels() {
+      const data = await api("/api/separation-models");
+      separationModels = data.models || [];
+      const select = $("separation_model_select");
+      select.innerHTML = "";
+      for (const model of separationModels) {
+        const option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = model.available ? model.label : `${model.label}（需安装）`;
+        option.disabled = !model.available;
+        select.appendChild(option);
+      }
+      const recommended = separationModels.find(m => m.available && m.recommended);
+      const firstAvailable = separationModels.find(m => m.available);
+      select.value = (recommended || firstAvailable || {}).id || "";
+      renderSeparationModelInfo();
+    }
+
+    function renderSeparationModelInfo() {
+      const model = separationModels.find(m => m.id === $("separation_model_select").value);
+      const box = $("separation_model_info");
+      if (!model) {
+        box.textContent = "请选择分离模型。";
+        box.className = "muted";
+        return;
+      }
+      box.innerHTML = `质量：${model.quality}　|　速度：${model.speed}　|　显存：${model.vram}<br>${model.requirements}`;
+      box.className = model.available ? "muted" : "bad";
+    }
+
     function updateSeparationHint() {
       const item = separations.find(entry => entry.id === $("separation_select").value);
       $("separation_history_status").textContent = item
@@ -1096,7 +1153,8 @@
       for (const sample of data.samples) {
         const div = document.createElement("div");
         div.className = "sample";
-        div.innerHTML = `<b>${sample.name}</b><audio controls src="${sample.url}"></audio>`;
+        div.innerHTML = `<b>${sample.name}</b><audio controls src="${sample.url}"></audio>`
+          + `<a class="download-link" href="${downloadUrl(sample.path)}" download>下载</a>`;
         const button = document.createElement("button");
         button.textContent = "选择这个声线";
         button.onclick = () => saveVoice(sample, button, div);
@@ -1139,6 +1197,36 @@
       }
     }
 
+    async function autoDetectPitch() {
+      const btn = $("auto_pitch_button");
+      const info = $("auto_pitch_info");
+      try {
+        const voice = voices.find(v => v.id === $("voice_select").value);
+        if (!voice) throw new Error("请先选择一个历史声线。");
+        if (!separationReady || !separationJobPath) throw new Error("请先完成第 3 步人声分离。");
+        btn.disabled = true;
+        info.className = "muted";
+        info.textContent = "正在分析原唱和声线的音高（约需十几秒）...";
+        const params = new URLSearchParams({ voice_id: voice.id, separation_job_path: separationJobPath });
+        const data = await api(`/api/suggest-pitch?${params.toString()}`);
+        if (!data.ok) {
+          info.className = "bad";
+          info.textContent = data.reason || "无法估计音高，请手动设置变调。";
+          return;
+        }
+        $("cover_pitch").value = data.recommended;
+        info.className = "muted";
+        info.textContent = `原唱≈${data.source_f0}Hz，你的声线≈${data.target_f0}Hz，`
+          + `精确差约 ${data.semitones_raw > 0 ? "+" : ""}${data.semitones_raw} 半音，`
+          + `已按八度建议变调 ${data.recommended > 0 ? "+" : ""}${data.recommended}。如偏高/偏低可手动微调。`;
+      } catch (err) {
+        info.className = "bad";
+        info.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     async function makeCover() {
       try {
         const voice = voices.find(v => v.id === $("voice_select").value);
@@ -1178,6 +1266,7 @@
         separationStatus("正在创建人声分离任务。");
         const result = await post("/api/create-separation-job", {
           song_path: $("song_path").value,
+          separation_model: $("separation_model_select").value,
           start_seconds: $("start_seconds").value,
           duration_seconds: $("duration_seconds").value
         });
@@ -1273,7 +1362,15 @@
       $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
       if (data.runner && data.runner.running) {
         status("任务正在运行，请等待。");
-        setProgress(`${activeTask ? activeTaskLabel(activeTask) : "任务"}正在运行：${currentStepText(data.state)}`, true);
+        const label = activeTask ? activeTaskLabel(activeTask) : "任务";
+        const p = data.progress;
+        if (p && p.phase === "train" && p.total_epoch) {
+          setProgress(`${label}：训练中 epoch ${p.epoch}/${p.total_epoch}（${p.percent}%）`, true, false, p.percent);
+        } else if (p && p.phase === "separate") {
+          setProgress(`${label}：人声分离中（${p.percent}%）`, true, false, p.percent);
+        } else {
+          setProgress(`${label}正在运行：${currentStepText(data.state)}`, true);
+        }
       }
       const messages = (data.runner && data.runner.messages) || [];
       const lastMessage = messages.length ? messages[messages.length - 1] : "";
@@ -1357,13 +1454,28 @@
       ].filter(Boolean).join("\n") || JSON.stringify(artifacts, null, 2);
     }
 
+    const AUDIO_EXTS = [".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"];
+    function isAudioPath(path) {
+      if (!path) return false;
+      const lower = String(path).toLowerCase();
+      return AUDIO_EXTS.some(ext => lower.endsWith(ext));
+    }
+    function downloadUrl(path) {
+      return `/api/file?path=${encodeURIComponent(path)}&download=1`;
+    }
+
     function showSaved(id, items) {
       const el = $(id);
       if (!el) return;
       const valid = items.filter(it => it.path);
       if (!valid.length) { el.style.display = "none"; el.innerHTML = ""; return; }
       el.innerHTML = "<b>已生成，保存位置：</b>"
-        + valid.map(it => `<div>${it.label}：<span class="path">${it.path}</span></div>`).join("");
+        + valid.map(it => {
+            const dl = isAudioPath(it.path)
+              ? ` <a href="${downloadUrl(it.path)}" download>下载</a>`
+              : "";
+            return `<div>${it.label}：<span class="path">${it.path}</span>${dl}</div>`;
+          }).join("");
       el.style.display = "block";
     }
 
@@ -1384,10 +1496,12 @@
       const audioPath = artifacts && (artifacts.result_audio || artifacts.final_mix || "");
       const panel = $("result_audio_panel");
       const player = $("result_audio_player");
+      const dl = $("result_audio_download");
       if (!audioPath) {
         currentCoverAudioPath = currentCoverAudioPath || "";
         panel.style.display = "none";
         player.removeAttribute("src");
+        if (dl) dl.removeAttribute("href");
         return;
       }
       currentCoverAudioPath = audioPath;
@@ -1396,6 +1510,7 @@
         player.src = src;
         player.load();
       }
+      if (dl) dl.href = downloadUrl(audioPath);
       $("result_audio_path").textContent = `保存位置：${audioPath}`;
       panel.style.display = "block";
     }
@@ -1436,7 +1551,7 @@
     setMaterialMode("a");
     toggleEpochsAuto();
     loadDefaults()
-      .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), loadSeparations(), loadCovers(), refreshStatus()]))
+      .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), loadSeparations(), loadSeparationModels(), loadCovers(), refreshStatus()]))
       .catch(err => {
         status(err.message, true);
         auditionStatus(err.message, true);

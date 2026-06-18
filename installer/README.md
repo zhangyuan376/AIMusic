@@ -1,6 +1,6 @@
 # Installer Plan
 
-The application should install everything needed for a non-technical user to run the full workflow.
+The application should install everything needed for a non-technical user to run the full audio-cover workflow on Windows.
 
 ## First Version: Offline Full Installer
 
@@ -12,10 +12,10 @@ Ship a large but self-contained Windows installer:
 - bundled Applio runtime
 - bundled Demucs and Edge TTS Python packages
 - bundled FFmpeg
-- default Pomao example model
-- default character images
 
-The installed app must not depend on system `PATH`.
+The installed app must not depend on system `PATH`. It ships **no** private voice
+model or character assets — each user creates a character and trains their own
+voice on first use.
 
 Expected installed layout:
 
@@ -29,14 +29,6 @@ AISingingVideo/
       ffmpeg.exe
       core.py
       ...
-  voice_pipeline/
-    Generated_image.png
-    Generated_image1.png
-    Generated_image2.png
-    Generated_image3.png
-    models/
-      pomao_clear_voice_10e_1350s.pth
-      pomao_clear_voice.index
   singing_app/
     jobs/
     projects/
@@ -61,9 +53,6 @@ Required checks:
 - FFmpeg exists
 - `demucs` imports successfully
 - `edge_tts` imports successfully
-- default `.pth` model exists
-- default `.index` file exists
-- default character image exists
 
 ## Build Commands
 
@@ -95,4 +84,3 @@ Later, split the installer into:
 - first-launch runtime downloader
 - resumable runtime download and verification
 - one-click repair if files are missing
-

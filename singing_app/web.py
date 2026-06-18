@@ -19,7 +19,13 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from singing_app.config import RUNTIME
 from singing_app.harness.runner import HarnessRunner
+from singing_app.pitch import suggest_pitch_shift
 from singing_app.runtime_check import checks_as_dicts
+from singing_app.separation_models import (
+    DEFAULT_SEPARATION_MODEL,
+    list_separation_models,
+    resolve_separation_model,
+)
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "web_static"
@@ -91,14 +97,24 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 self._send_json({"voices": load_voice_library()})
             elif parsed.path == "/api/separations":
                 self._send_json({"separations": load_separation_library()})
+            elif parsed.path == "/api/separation-models":
+                self._send_json({"models": list_separation_models()})
+            elif parsed.path == "/api/suggest-pitch":
+                query = parse_qs(parsed.query)
+                self._send_json(suggest_cover_pitch(
+                    query.get("voice_id", [""])[0],
+                    query.get("separation_job_path", [""])[0],
+                ))
             elif parsed.path == "/api/covers":
                 self._send_json({"covers": load_cover_library()})
             elif parsed.path == "/api/samples":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json({"samples": list_voice_samples(job_path)})
             elif parsed.path == "/api/file":
-                file_path = Path(parse_qs(parsed.query).get("path", [""])[0])
-                self._send_file(file_path, _content_type(file_path))
+                query = parse_qs(parsed.query)
+                file_path = Path(query.get("path", [""])[0])
+                download = query.get("download", ["0"])[0] in ("1", "true", "yes")
+                self._send_file(file_path, _content_type(file_path), download=download)
             elif parsed.path == "/api/status":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json(job_status(job_path, self.manager.snapshot()))
@@ -177,7 +193,7 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def _send_file(self, path: Path, content_type: str) -> None:
+    def _send_file(self, path: Path, content_type: str, download: bool = False) -> None:
         if not path.exists():
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
             return
@@ -212,6 +228,11 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Accept-Ranges", "bytes")
+        if download:
+            self.send_header(
+                "Content-Disposition",
+                f"attachment; filename*=UTF-8''{quote(path.name)}",
+            )
         if path.name == "index.html":
             self.send_header("Cache-Control", "no-store")
         if status == HTTPStatus.PARTIAL_CONTENT:
@@ -583,6 +604,53 @@ def list_voice_samples(job_path: Path) -> list[dict[str, str]]:
     return samples
 
 
+def _voice_sample_files(sample_dir: Path, limit: int = 4) -> list[Path]:
+    """Pick a few representative training-sample audio files for F0 estimation.
+
+    Skips our own denoise intermediates (same exclusion as the auto-epoch
+    duration probe) so a file is not measured twice, and caps the count so the
+    suggestion stays fast on large datasets.
+    """
+    exts = {".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac", ".opus"}
+    files = [
+        p
+        for p in sorted(sample_dir.rglob("*"))
+        if p.is_file() and p.suffix.lower() in exts and "denoise" not in p.parts
+    ]
+    return files[:limit]
+
+
+def _separation_vocals_path(separation_job_path: str) -> Path:
+    job_path = Path(separation_job_path)
+    if not job_path.exists():
+        raise FileNotFoundError("找不到对应的人声分离任务，请先完成第 3 步人声分离。")
+    output_dir = Path(_read_json(job_path)["output_dir"])
+    artifacts = _read_json_if_exists(output_dir / "artifacts.json") or {}
+    return Path(str(artifacts.get("vocals", "")))
+
+
+def suggest_cover_pitch(voice_id: str, separation_job_path: str) -> dict[str, Any]:
+    """Recommend a cover transpose from the song's vocals vs. the voice's samples."""
+    voice = find_voice(_require_nonempty(voice_id, "voice_id"))
+    sample_dir = Path(str(voice.get("sample_dir", "")))
+    if not sample_dir.exists():
+        raise FileNotFoundError("该声线没有可用的训练素材目录，无法自动估计音高。")
+    targets = _voice_sample_files(sample_dir)
+    if not targets:
+        raise FileNotFoundError("训练素材目录里没有可用的音频文件。")
+    vocals = _separation_vocals_path(_require_nonempty(separation_job_path, "separation_job_path"))
+    if not vocals.exists():
+        raise FileNotFoundError("找不到分离出的人声文件，请先完成第 3 步人声分离。")
+    return suggest_pitch_shift(vocals, targets)
+
+
+def _require_nonempty(value: str, field: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        raise ValueError(f"缺少参数：{field}")
+    return value
+
+
 def list_jobs() -> list[dict[str, str]]:
     jobs_root = RUNTIME.app_root / "singing_app" / "jobs"
     jobs_root.mkdir(parents=True, exist_ok=True)
@@ -608,6 +676,90 @@ def job_status(job_path: Path, runner_snapshot: dict[str, Any]) -> dict[str, Any
         "state": _read_json_if_exists(output_dir / "state.json"),
         "artifacts": _read_json_if_exists(output_dir / "artifacts.json"),
         "logs": read_logs(output_dir / "logs"),
+        "progress": _training_progress(output_dir / "logs")
+        or _separation_progress(output_dir / "logs"),
+    }
+
+
+def _training_progress(logs_dir: Path) -> dict[str, Any] | None:
+    """Parse epoch progress from the training log, if a training is underway.
+
+    Applio writes one ``... | epoch=N | step=M | ...`` line per finished epoch
+    and the launching command carries ``--total_epoch N``. Reading the full log
+    here (not the truncated tail sent to the UI) keeps the total reliable even
+    after many epochs. Returns None when there is no training log yet.
+    """
+    log_path = logs_dir / "train_voice_model.log"
+    if not log_path.exists():
+        return None
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    total_match = re.findall(r"--total_epoch\s+(\d+)", text)
+    epoch_match = re.findall(r"\bepoch=(\d+)", text)
+    total = int(total_match[-1]) if total_match else 0
+    current = int(epoch_match[-1]) if epoch_match else 0
+    done = "successfully completed" in text
+    percent = 100 if done else (min(99, round(current / total * 100)) if total else 0)
+    return {
+        "phase": "train",
+        "epoch": current,
+        "total_epoch": total,
+        "percent": percent,
+        "done": done,
+    }
+
+
+def _separation_progress(logs_dir: Path) -> dict[str, Any] | None:
+    """Parse demucs separation progress from the streamed separation log.
+
+    Demucs prints ``Selected model is a bag of N models.`` for ensemble models
+    (e.g. htdemucs_ft = 4) and runs ``--shifts`` passes per sub-model, emitting
+    one tqdm bar (0->100%) per pass. So the total number of bars is
+    ``bag * shifts`` and overall progress = (finished bars + current bar
+    fraction) / total. ``run_command`` streams the log live (carriage-return
+    tqdm frames included), so this updates while separation runs. Returns None
+    when there is no separation log yet.
+    """
+    log_path = logs_dir / "separate_vocals.log"
+    if not log_path.exists():
+        return None
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    shifts_match = re.search(r"--shifts\s+(\d+)", text)
+    shifts = int(shifts_match.group(1)) if shifts_match else 1
+    bag_match = re.search(r"bag of (\d+) models", text)
+    bag = int(bag_match.group(1)) if bag_match else 1
+    total_bars = max(1, bag * max(1, shifts))
+
+    completed = 0
+    in_done = False
+    current = 0
+    seen_any = False
+    for frame in re.split(r"[\r\n]", text):
+        match = re.search(r"(\d+)%\|", frame)
+        if not match:
+            continue
+        seen_any = True
+        pct = int(match.group(1))
+        if pct >= 100:
+            if not in_done:
+                completed += 1
+                in_done = True
+            current = 100
+        else:
+            in_done = False
+            current = pct
+
+    done = seen_any and completed >= total_bars
+    if not seen_any:
+        percent = 0
+    else:
+        partial = current / 100 if current < 100 else 0
+        percent = 100 if done else min(99, round((completed + partial) / total_bars * 100))
+    return {
+        "phase": "separate",
+        "bars_done": completed,
+        "total_bars": total_bars,
+        "percent": percent,
+        "done": done,
     }
 
 
@@ -640,6 +792,40 @@ def open_output_folder(job_path: Path) -> dict[str, str]:
 
 
 def pick_file(kind: str = "any", initial: str = "") -> dict[str, str]:
+    # On Linux, prefer the native GTK chooser (zenity): the Tk bundled with the
+    # uv standalone Python is built without Xft, so its dialogs use scaled
+    # bitmap fonts that look blurry on HiDPI. zenity renders crisply and returns
+    # an absolute path. Windows/macOS keep the Tk dialog (native + crisp there).
+    if sys.platform.startswith("linux") and shutil.which("zenity"):
+        result = _pick_file_zenity(kind, initial)
+        if result is not None:
+            return result
+    return _pick_file_tk(kind, initial)
+
+
+def _pick_file_zenity(kind: str, initial: str) -> dict[str, str] | None:
+    cmd = ["zenity", "--file-selection"]
+    initial_path = Path(initial) if initial else None
+    if kind == "folder":
+        start = initial_path if initial_path and initial_path.is_dir() else RUNTIME.app_root
+        cmd += ["--directory", "--title", "选择录音文件夹", f"--filename={start}/"]
+    else:
+        start = initial_path.parent if initial_path and initial_path.exists() else RUNTIME.app_root
+        cmd += ["--title", _file_dialog_title(kind), f"--filename={start}/"]
+        for label, pattern in _file_dialog_types(kind):
+            cmd.append(f"--file-filter={label} | {pattern.replace('*.*', '*')}")
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except Exception:
+        return None
+    if proc.returncode == 0:
+        return {"path": proc.stdout.strip()}
+    if proc.returncode == 1:  # user cancelled
+        return {"path": ""}
+    return None  # zenity error -> fall back to Tk
+
+
+def _pick_file_tk(kind: str = "any", initial: str = "") -> dict[str, str]:
     try:
         root = tk.Tk()
     except tk.TclError:
@@ -743,6 +929,18 @@ def write_separation_job(payload: dict[str, Any]) -> Path:
     job_id = f"{song_id}_vocal_separation"
     project_dir = RUNTIME.projects_root / job_id
     job_path = _job_path(job_id)
+    model_id = str(payload.get("separation_model") or DEFAULT_SEPARATION_MODEL).strip()
+    model = resolve_separation_model(model_id)
+    if model is None:
+        raise ValueError(f"未知的分离模型: {model_id}")
+    if not next(
+        (m["available"] for m in list_separation_models() if m["id"] == model_id),
+        False,
+    ):
+        raise ValueError(
+            f"分离模型「{model['label']}」尚未安装，无法使用。"
+            "请先安装 audio-separator 包并下载对应权重，或改用 Demucs 模型。"
+        )
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
@@ -754,7 +952,7 @@ def write_separation_job(payload: dict[str, Any]) -> Path:
                 "duration_seconds": float(payload.get("duration_seconds", 30)),
             },
         },
-        "settings": {"separation": {"model": str(payload.get("separation_model", "htdemucs_ft")).strip() or "htdemucs_ft"}},
+        "settings": {"separation": {"model": model_id}},
     })
     return job_path
 
@@ -940,10 +1138,17 @@ def _required_existing_file(value: str, label: str) -> Path:
 
 def _content_type(path: Path) -> str:
     suffix = path.suffix.lower()
-    if suffix == ".wav":
-        return "audio/wav"
-    if suffix == ".mp3":
-        return "audio/mpeg"
+    audio_types = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".flac": "audio/flac",
+        ".m4a": "audio/mp4",
+        ".aac": "audio/aac",
+        ".ogg": "audio/ogg",
+        ".opus": "audio/ogg",
+    }
+    if suffix in audio_types:
+        return audio_types[suffix]
     if suffix == ".mp4":
         return "video/mp4"
     return "application/octet-stream"

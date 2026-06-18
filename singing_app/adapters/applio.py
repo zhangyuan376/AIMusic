@@ -1,10 +1,38 @@
 from __future__ import annotations
 
 import re
+import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 from singing_app.adapters.command import run_command
 from singing_app.config import RUNTIME
+
+
+@lru_cache(maxsize=None)
+def _cuda_available(python_path: str) -> bool:
+    """Probe whether the given interpreter's torch can see a CUDA device.
+
+    Must query the Applio env's own torch (it is what extract.py/train.py use),
+    not the harness interpreter — the two envs can have different torch builds.
+    Any failure falls back to CPU so training degrades instead of crashing.
+    """
+    try:
+        result = subprocess.run(
+            [python_path, "-c", "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"],
+            timeout=60,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _resolve_gpu(value: str, python_path: Path) -> str:
+    """Map 'auto'/'' to a concrete Applio gpu arg: '0' if CUDA else '-' (CPU)."""
+    value = value.strip()
+    if value and value.lower() != "auto":
+        return value
+    return "0" if _cuda_available(str(python_path)) else "-"
 
 
 class ApplioInferAdapter:
@@ -89,7 +117,7 @@ class ApplioTrainAdapter:
         log_path: Path,
         epochs: int = 10,
         sample_rate: int = 40000,
-        gpu: str = "0",
+        gpu: str = "auto",
         batch_size: int = 8,
         cpu_cores: int = 4,
         save_every: int = 5,
@@ -103,6 +131,10 @@ class ApplioTrainAdapter:
         index) via ``core.py`` so any user can train a voice from a folder of
         audio samples without private scripts or pre-trained character weights.
         """
+        # 'auto' uses GPU when the Applio env has CUDA, else CPU. The extract
+        # stage forces cuda:N for any non-'-' value (no internal fallback), so
+        # resolving here is what keeps CPU-only machines from crashing.
+        gpu = _resolve_gpu(gpu, self.python_path) if not dry_run else (gpu if gpu != "auto" else "0")
         core = [str(self.python_path), "core.py"]
 
         run_command(

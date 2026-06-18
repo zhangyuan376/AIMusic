@@ -1,6 +1,6 @@
 # AI Singing App Harness
 
-This package contains the workflow harness for the local AI singing video app.
+This package contains the workflow harness for the local AI audio-cover app.
 
 The harness runs jobs described by JSON files. Each job records:
 
@@ -8,74 +8,60 @@ The harness runs jobs described by JSON files. Each job records:
 - `artifacts.json`: generated file paths
 - `logs/*.log`: command output for each external tool
 
+Commands below use `python` to mean the project interpreter. On Linux/macOS that
+is `.venv/bin/python`; on Windows it is `tools\ApplioV3.6.2\env\python.exe`.
+
 ## Run A Job
 
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main run --job d:\further\IP\singing_app\jobs\pomao_demo_job.json
+```bash
+python -m singing_app.main run --job singing_app/jobs/<job>.json
 ```
 
 ## Launch Web UI
 
-Installed app:
-
-```powershell
-run_singing_web.bat
+```bash
+python -m singing_app.main web
 ```
 
-Development checkout:
+Or, in an installed app:
 
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main web
+```bat
+run_singing_web.bat
 ```
 
 The web UI opens `http://127.0.0.1:7860` and exposes the same harness flow through local JSON APIs. It is intended for easier debugging in a browser.
 
 The browser workflow is designed for non-technical use:
 
-1. Describe the character voice style.
-2. Generate audition samples and listen in the browser.
-3. Save the preferred voice into local voice history.
-4. Train or select a ready historical voice.
-5. Pick a song and run vocal separation as its own job.
-6. Generate the cover audio from the separated vocal/instrumental tracks.
-7. Generate a 4K atmospheric MV from the cover audio, character image, and background image.
+1. Describe the character voice style, or upload a folder of real recordings.
+2. Generate audition samples and listen in the browser (TTS route).
+3. Save the preferred voice / prepared recordings into local voice history.
+4. Train an RVC model from the prepared material; it auto-binds on completion.
+5. Pick a song; vocal separation runs as its own step.
+6. Convert the separated vocal to the chosen voice and mix the cover audio.
 
 Historical voices are stored locally in `singing_app/voice_library.json`. This file is user data and should not be committed or bundled into installer builds.
 
-The first UI is a harness control panel. It can:
+The UI is a harness control panel. It can:
 
-- create a singing video job from a simple form
-- create a voice sample generation job from a simple form
+- create a voice sample generation / recording-prep job from a simple form
 - create a model training job from a simple form
+- create a cover-audio job from a simple form
 - choose a job JSON
 - run dry-run or real processing
-- show `state.json`
-- show `artifacts.json`
-- open the output folder
-- open the logs folder
+- show `state.json` and `artifacts.json`
+- open the output and logs folders
 
 Print status:
 
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main status --job d:\further\IP\singing_app\jobs\pomao_demo_job.json
+```bash
+python -m singing_app.main status --job singing_app/jobs/<job>.json
 ```
 
 Dry-run without heavy processing:
 
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main run --job d:\further\IP\singing_app\jobs\new_character_voice_job.json --dry-run --no-resume
-```
-
-Generate voice samples only:
-
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main run --job d:\further\IP\singing_app\jobs\demo_character_voice_samples.json --dry-run --no-resume
-```
-
-Train a model from a sample directory:
-
-```powershell
-d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main run --job d:\further\IP\singing_app\jobs\demo_character_train_demo_character_voice.json --dry-run --no-resume
+```bash
+python -m singing_app.main run --job singing_app/jobs/<job>.json --dry-run --no-resume
 ```
 
 ## Current Steps
@@ -84,19 +70,19 @@ d:\further\IP\tools\ApplioV3.6.2\env\python.exe -m singing_app.main run --job d:
 - `create_character`
 - `generate_training_text`
 - `generate_voice_samples`
+- `prepare_recordings`
 - `train_voice_model`
 - `import_voice_model`
 - `trim_song`
 - `separate_vocals`
 - `convert_vocals`
 - `mix_audio`
-- `compose_video`
 - `export_result`
 
 ## Notes
 
 The UI should call this harness instead of invoking Applio, Demucs, or FFmpeg directly.
-This keeps the workflow resumable, testable, and easier to package into a Windows installer.
+This keeps the workflow resumable, testable, and easier to package.
 
 ## Packaging
 
@@ -122,5 +108,4 @@ powershell -ExecutionPolicy Bypass -File scripts\build_inno_installer.ps1
 
 ## Current Limitations
 
-This is a functional V1 harness and local Web UI. The app can create jobs, resume steps, inspect logs, generate samples, train/import models, separate vocals, convert singing vocals, mix cover audio, and render basic MV outputs. Stronger repair flows, GPU-specific training presets, and richer mouth-shape animation are still future work.
-
+This is a functional V1 harness and local Web UI. The app can create jobs, resume steps, inspect logs, generate samples, prepare recordings, train/import models, separate vocals, convert singing vocals, and mix cover audio. The scope is audio-only. Stronger repair flows and GPU-specific training presets are still future work.
