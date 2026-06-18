@@ -103,6 +103,23 @@ class RuntimePaths:
         return self.applio_root / "core.py"
 
     @property
+    def applio_rmvpe(self) -> Path:
+        """Pitch-extraction model required for training (extract) and inference."""
+        return self.applio_root / "rvc" / "models" / "predictors" / "rmvpe.pt"
+
+    @property
+    def applio_contentvec(self) -> Path:
+        """ContentVec embedder required for training (extract) and inference."""
+        return (
+            self.applio_root
+            / "rvc"
+            / "models"
+            / "embedders"
+            / "contentvec"
+            / "pytorch_model.bin"
+        )
+
+    @property
     def default_model(self) -> Path:
         return self.voice_pipeline_root / "models" / "pomao_clear_voice_10e_1350s.pth"
 

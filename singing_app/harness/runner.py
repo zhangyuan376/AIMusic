@@ -164,6 +164,11 @@ class HarnessRunner:
             dataset_path=dataset,
             log_path=context.logs_dir / "train_voice_model.log",
             epochs=epochs,
+            sample_rate=int(voice.get("sample_rate", 40000)),
+            gpu=str(voice.get("gpu", "0")),
+            batch_size=int(voice.get("batch_size", 8)),
+            cpu_cores=int(voice.get("cpu_cores", 4)),
+            save_every=int(voice.get("save_every", 5)),
             dry_run=context.dry_run,
         )
         artifacts = {
@@ -181,8 +186,16 @@ class HarnessRunner:
 
     def import_voice_model(self, context: StepContext) -> StepResult:
         voice = context.job.inputs.get("voice", {})
-        model_path = Path(voice.get("model_path", RUNTIME.default_model))
-        index_path = Path(voice.get("index_path", RUNTIME.default_index))
+        model_path = Path(
+            voice.get("model_path")
+            or context.artifacts.get("trained_model_path")
+            or RUNTIME.default_model
+        )
+        index_path = Path(
+            voice.get("index_path")
+            or context.artifacts.get("trained_index_path")
+            or RUNTIME.default_index
+        )
         if not context.dry_run:
             if not model_path.exists():
                 raise FileNotFoundError(f"Model file not found: {model_path}")

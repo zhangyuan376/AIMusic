@@ -23,8 +23,8 @@ def run_runtime_checks() -> list[RuntimeCheck]:
         _check_file("FFmpeg", RUNTIME.ffmpeg),
         _check_file("Applio Python", RUNTIME.applio_python),
         _check_file("Applio core.py", RUNTIME.applio_core),
-        _check_file("Default Pomao model", RUNTIME.default_model),
-        _check_file("Default Pomao index", RUNTIME.default_index),
+        _check_file("RVC pitch model (rmvpe)", RUNTIME.applio_rmvpe),
+        _check_file("RVC embedder (contentvec)", RUNTIME.applio_contentvec),
     ]
     return checks
 

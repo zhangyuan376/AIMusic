@@ -41,6 +41,7 @@ installer/
   runtime_manifest.json              离线运行时清单
 
 scripts/
+  fetch_applio_prereqs.sh            下载 Applio 公开前置模型(镜像友好)
   build_offline_staging.ps1          生成完整离线 staging
   verify_offline_staging.ps1         验证 staging 缺失文件
   build_inno_installer.ps1           构建 Inno 分卷安装包
@@ -118,6 +119,30 @@ bash run_singing_web.sh
 - `AI_SINGING_FFMPEG` — FFmpeg 可执行文件
 
 Applio 工具包、模型权重(`.pth`/`.index`)等大文件仍是本机运行时资产,不提交到 GitHub;运行时检查会显示缺失路径,按提示拷入即可。
+
+### 下载 Applio 公开前置资产
+
+训练和翻唱都依赖一组**公开、非私有**的 RVC 模型:`rmvpe`(音高提取)、`contentvec`(嵌入)、HiFi-GAN 预训练底模。它们体积大,不入库。装好 Applio 工具包后下载一次即可:
+
+```bash
+bash scripts/fetch_applio_prereqs.sh
+```
+
+国内默认走 `hf-mirror.com` 镜像;海外可指定官方源,或一次拉多个采样率底模:
+
+```bash
+HF_ENDPOINT=https://huggingface.co bash scripts/fetch_applio_prereqs.sh
+SAMPLE_RATES="32k 40k 48k" bash scripts/fetch_applio_prereqs.sh
+```
+
+### 训练自己的声线(通用流程,不依赖任何预置模型)
+
+1. 创建角色、用 Edge TTS 生成声线样本(`generate_voice_samples`)。
+2. `train_voice_model` 用 Applio 自带的标准流程训练:`preprocess → extract → train → index`,产出 `tools/ApplioV3.6.2/logs/<model_name>/` 下的 `.pth` + `.index`。
+3. `import_voice_model` 自动登记训练好的模型(也可手动指定 `model_path`/`index_path`)。
+4. 选歌 → 人声分离 → `convert_vocals` 翻唱 → 混音,输出翻唱音频。
+
+> 若音频处理报 `No module named '_lzma'`,说明当前 Python 编译时缺 `liblzma`;装 `liblzma-dev` 重建 Python,或改用自带 lzma 的 python-build-standalone / conda 解释器。
 
 浏览器版目标流程：
 

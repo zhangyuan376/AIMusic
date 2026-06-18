@@ -83,35 +83,107 @@ class ApplioTrainAdapter:
         dataset_path: Path,
         log_path: Path,
         epochs: int = 10,
+        sample_rate: int = 40000,
+        gpu: str = "0",
+        batch_size: int = 8,
+        cpu_cores: int = 4,
+        save_every: int = 5,
+        f0_method: str = "rmvpe",
+        embedder_model: str = "contentvec",
         dry_run: bool = False,
     ) -> dict[str, Path]:
+        """Train an RVC model with the stock Applio pipeline.
+
+        Runs the four standard Applio stages (preprocess -> extract -> train ->
+        index) via ``core.py`` so any user can train a voice from a folder of
+        audio samples without private scripts or pre-trained character weights.
+        """
+        core = [str(self.python_path), "core.py"]
+
         run_command(
-            [
-                str(self.python_path),
-                "mochi_train_direct.py",
-                "--stage",
-                "all",
-                "--dataset",
-                str(dataset_path),
-                "--model-name",
+            core
+            + [
+                "preprocess",
+                "--model_name",
                 model_name,
-                "--sample-rate",
-                "40000",
-                "--cpu-cores",
-                "4",
-                "--gpu",
-                "-",
-                "--epochs",
-                str(epochs),
-                "--batch-size",
-                "1",
-                "--save-every",
-                "5",
+                "--dataset_path",
+                str(dataset_path),
+                "--sample_rate",
+                str(sample_rate),
+                "--cpu_cores",
+                str(cpu_cores),
+                "--cut_preprocess",
+                "Automatic",
             ],
             cwd=self.applio_root,
             log_path=log_path,
             dry_run=dry_run,
         )
+
+        run_command(
+            core
+            + [
+                "extract",
+                "--model_name",
+                model_name,
+                "--f0_method",
+                f0_method,
+                "--sample_rate",
+                str(sample_rate),
+                "--cpu_cores",
+                str(cpu_cores),
+                "--gpu",
+                gpu,
+                "--embedder_model",
+                embedder_model,
+                "--include_mutes",
+                "2",
+            ],
+            cwd=self.applio_root,
+            log_path=log_path,
+            dry_run=dry_run,
+        )
+
+        run_command(
+            core
+            + [
+                "train",
+                "--model_name",
+                model_name,
+                "--save_every_epoch",
+                str(save_every),
+                "--save_every_weights",
+                "True",
+                "--total_epoch",
+                str(epochs),
+                "--sample_rate",
+                str(sample_rate),
+                "--batch_size",
+                str(batch_size),
+                "--gpu",
+                gpu,
+                "--pretrained",
+                "True",
+            ],
+            cwd=self.applio_root,
+            log_path=log_path,
+            dry_run=dry_run,
+        )
+
+        run_command(
+            core
+            + [
+                "index",
+                "--model_name",
+                model_name,
+                "--index_algorithm",
+                "Auto",
+            ],
+            cwd=self.applio_root,
+            log_path=log_path,
+            dry_run=dry_run,
+        )
+
         model_dir = self.applio_root / "logs" / model_name
         return {
             "model_dir": model_dir,

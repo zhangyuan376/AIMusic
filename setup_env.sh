@@ -27,6 +27,19 @@ echo "==> Install Python requirements"
 #   PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash setup_env.sh
 "$PYTHON" -m pip install -r "$ROOT/requirements.txt"
 
+echo "==> Check Python audio support (lzma)"
+# Some source-built Python interpreters are compiled without liblzma, so the
+# stdlib "lzma" module is missing. Audio libraries (librosa/soundfile chain,
+# used by Demucs and the Applio training pipeline) then fail with
+# "No module named '_lzma'". Detect it early.
+if ! "$PYTHON" -c "import lzma" >/dev/null 2>&1; then
+  echo "WARNING: this Python lacks the 'lzma' module (built without liblzma)." >&2
+  echo "Audio loading will fail with: No module named '_lzma'." >&2
+  echo "Fix by installing liblzma dev headers and rebuilding Python, e.g.:" >&2
+  echo "  sudo apt install -y liblzma-dev   # then reinstall/rebuild Python" >&2
+  echo "or use a python-build-standalone / conda interpreter that ships lzma." >&2
+fi
+
 echo "==> Check FFmpeg"
 if command -v ffmpeg >/dev/null 2>&1; then
   echo "FFmpeg found: $(command -v ffmpeg)"
