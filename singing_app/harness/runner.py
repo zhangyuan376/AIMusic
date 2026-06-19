@@ -17,6 +17,7 @@ from singing_app.adapters.ffmpeg import FfmpegAdapter
 from singing_app.characters.project import CharacterProject, VoiceModelRef
 from singing_app.config import RUNTIME
 from singing_app.harness.models import HarnessJob, StepContext, StepResult
+from singing_app.pitch import decide_pitch_augment
 from singing_app.separation_models import resolve_separation_model
 
 
@@ -208,6 +209,10 @@ class HarnessRunner:
                 "to a folder of audio files or a list of file paths."
             )
 
+        augment, augment_note = self._resolve_pitch_augment(
+            voice.get("pitch_augment", "auto"), sources, context.dry_run
+        )
+
         outputs: list[Path] = []
         for index, src in enumerate(sources, start=1):
             cleaned = src
@@ -233,13 +238,65 @@ class HarnessRunner:
                 dry_run=context.dry_run,
             )
             outputs.append(out)
+            # Pitch-augmented copies widen the model's f0 coverage so a
+            # speech-trained voice can sing high notes without pinching. Files
+            # carry the '_aug_' marker so epoch estimation can skip them (they
+            # are duplicate content, not new material).
+            for semitones in augment:
+                tag = ("p" if semitones >= 0 else "m") + f"{abs(int(round(semitones)))}"
+                aug_out = sample_dir / f"{index:03d}_recording_aug_{tag}.wav"
+                self.ffmpeg.pitch_shift(
+                    input_path=out,
+                    output_path=aug_out,
+                    semitones=semitones,
+                    log_path=context.logs_dir / "prepare_recordings.log",
+                    sample_rate=sample_rate,
+                    dry_run=context.dry_run,
+                )
+                outputs.append(aug_out)
 
+        notes = []
+        if denoise:
+            notes.append("denoised")
+        if augment:
+            notes.append(
+                f"pitch-augmented ±{','.join(str(abs(int(round(s)))) for s in sorted({abs(s) for s in augment}))} semitones"
+            )
+        if augment_note:
+            notes.append(augment_note)
+        suffix = f" ({', '.join(notes)})." if notes else "."
         return StepResult(
             status="succeeded",
             artifacts={"sample_dir": str(sample_dir), "sample_count": str(len(outputs))},
-            message=f"Prepared {len(outputs)} recordings for training"
-            + (" (denoised)." if denoise else "."),
+            message=f"Prepared {len(outputs)} recordings for training" + suffix,
         )
+
+    @staticmethod
+    def _resolve_pitch_augment(
+        value: object, sources: list[Path], dry_run: bool
+    ) -> tuple[list[float], str]:
+        """Resolve pitch augmentation to (semitone offsets, human note).
+
+        ``"auto"`` (the default) measures the material's voiced-f0 spread and
+        only augments when it is narrow (speech-like), since a speaking voice is
+        what forces the model to extrapolate to sing. ``"on"``/truthy forces a
+        balanced ±4-semitone spread (3x the data); ``"off"``/falsey disables it.
+        A measurement failure falls back to augmenting (speech is the common
+        case here and the only cost is extra training time).
+        """
+        spread = [-4.0, 4.0]
+        text = str(value).strip().lower()
+        if text in ("1", "true", "yes", "on"):
+            return spread, ""
+        if text in ("0", "false", "no", "off"):
+            return [], ""
+        # "auto"
+        if dry_run:
+            return spread, "auto: dry-run 预览按说话声处理（增强）"
+        if not sources:
+            return [], ""
+        decision = decide_pitch_augment([str(s) for s in sources])
+        return (spread if decision.get("augment") else []), str(decision.get("reason", ""))
 
     @staticmethod
     def _collect_recordings(recordings: object) -> list[Path]:
@@ -354,8 +411,12 @@ class HarnessRunner:
         total_seconds = 0.0
         for path in dataset.rglob("*"):
             # Skip our own intermediate denoise outputs so they aren't counted
-            # twice alongside the normalized training files.
+            # twice alongside the normalized training files. Also skip pitch-
+            # augmented copies: they are duplicate content, so counting them
+            # would over-estimate unique audio and pick too many epochs.
             if "denoise" in path.parts:
+                continue
+            if "_aug_" in path.name:
                 continue
             if path.is_file() and path.suffix.lower() in audio_exts:
                 total_seconds += self._probe_duration_seconds(path)
@@ -499,6 +560,9 @@ class HarnessRunner:
             protect=float(settings.get("protect", 0.45)),
             clean_audio=bool(settings.get("clean_audio", False)),
             clean_strength=float(settings.get("clean_strength", 0.3)),
+            formant_shifting=bool(settings.get("formant_shifting", False)),
+            formant_qfrency=float(settings.get("formant_qfrency", 1.0)),
+            formant_timbre=float(settings.get("formant_timbre", 1.0)),
             dry_run=context.dry_run,
         )
         return StepResult(status="succeeded", artifacts={"converted_vocals": str(output_path)})
@@ -513,6 +577,7 @@ class HarnessRunner:
             log_path=context.logs_dir / "mix_audio.log",
             instrumental_volume=float(settings.get("instrumental_volume", 0.88)),
             vocal_volume=float(settings.get("vocal_volume", 1.12)),
+            deess_strength=float(settings.get("deess_strength", 0.0)),
             dry_run=context.dry_run,
         )
         return StepResult(status="succeeded", artifacts={"final_mix": str(output_path)})

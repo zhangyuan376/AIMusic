@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 from singing_app.config import RUNTIME
 from singing_app.harness.runner import HarnessRunner
-from singing_app.pitch import suggest_pitch_shift
+from singing_app.pitch import suggest_formant, suggest_pitch_shift
 from singing_app.runtime_check import checks_as_dicts
 from singing_app.separation_models import (
     DEFAULT_SEPARATION_MODEL,
@@ -860,6 +860,8 @@ def _file_dialog_title(kind: str) -> str:
         return "选择角色图片"
     if kind == "audio":
         return "选择音乐文件"
+    if kind == "media":
+        return "选择音乐或视频文件"
     if kind == "job":
         return "选择 Job JSON"
     return "选择文件"
@@ -870,6 +872,15 @@ def _file_dialog_types(kind: str) -> list[tuple[str, str]]:
         return [("Image files", "*.png *.jpg *.jpeg *.webp *.bmp"), ("All files", "*.*")]
     if kind == "audio":
         return [("Audio files", "*.wav *.mp3 *.flac *.m4a *.aac *.ogg"), ("All files", "*.*")]
+    if kind == "media":
+        return [
+            (
+                "Audio/Video files",
+                "*.wav *.mp3 *.flac *.m4a *.aac *.ogg *.opus "
+                "*.mp4 *.mkv *.mov *.webm *.avi *.flv *.m4v *.ts",
+            ),
+            ("All files", "*.*"),
+        ]
     if kind == "job":
         return [("Job JSON", "*.json"), ("All files", "*.*")]
     return [("All files", "*.*")]
@@ -895,6 +906,21 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
     job_id = f"{character_id}_cover_audio"
     project_dir = RUNTIME.projects_root / job_id
     job_path = _job_path(job_id)
+    rvc = {
+        "pitch": int(payload.get("pitch", 0) or 0),
+        "index_rate": float(payload.get("index_rate", 0.7) or 0.7),
+        "protect": float(payload.get("protect", 0.45) or 0.45),
+        "clean_audio": bool(payload.get("clean_audio", False)),
+        "clean_strength": float(payload.get("clean_strength", 0.3) or 0.3),
+        "formant_shifting": bool(payload.get("formant_shifting", False)),
+        "formant_qfrency": float(payload.get("formant_qfrency", 1.0) or 1.0),
+        "formant_timbre": float(payload.get("formant_timbre", 1.0) or 1.0),
+    }
+    # Smart mode (default): the server measures the song vs. the voice and picks
+    # transpose + formant itself, so an outsider never touches a number. Expert
+    # mode (smart=false) keeps whatever the advanced form sent.
+    if bool(payload.get("smart", True)):
+        rvc.update(_smart_cover_rvc(payload, voice_id))
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
@@ -910,17 +936,37 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
             },
         },
         "settings": {
-            "rvc": {
-                "pitch": int(payload.get("pitch", 0) or 0),
-                "index_rate": float(payload.get("index_rate", 0.7) or 0.7),
-                "protect": float(payload.get("protect", 0.45) or 0.45),
-                "clean_audio": bool(payload.get("clean_audio", False)),
-                "clean_strength": float(payload.get("clean_strength", 0.3) or 0.3),
+            "rvc": rvc,
+            "mix": {
+                "instrumental_volume": 0.88,
+                "vocal_volume": 1.12,
+                "deess_strength": float(payload.get("deess_strength", 0.0) or 0.0),
             },
-            "mix": {"instrumental_volume": 0.88, "vocal_volume": 1.12},
         },
     })
     return job_path
+
+
+def _smart_cover_rvc(payload: dict[str, Any], voice_id: str) -> dict[str, Any]:
+    """Auto-derive transpose + formant for a cover from measured pitch.
+
+    Reuses the same F0 comparison as the manual "auto-detect" button, then maps
+    the octave-rounded transpose to a conservative cross-gender formant nudge.
+    Any failure (e.g. separation not ready in dry-run) degrades to no transpose
+    rather than blocking job creation. index_rate/protect keep the balanced
+    defaults — those are quality knobs an outsider should not have to reason
+    about, and a wrong auto value there hurts more than it helps.
+    """
+    pitch = int(payload.get("pitch", 0) or 0)
+    try:
+        suggestion = suggest_cover_pitch(voice_id, str(payload.get("separation_job_path", "")))
+        if suggestion.get("ok"):
+            pitch = int(suggestion["recommended"])
+    except Exception:
+        pass
+    out: dict[str, Any] = {"pitch": pitch, "index_rate": 0.7, "protect": 0.45}
+    out.update(suggest_formant(pitch))
+    return out
 
 
 def write_separation_job(payload: dict[str, Any]) -> Path:
@@ -1075,6 +1121,11 @@ def write_recording_prepare_job(payload: dict[str, Any]) -> Path:
     voice_inputs: dict[str, Any] = {"recordings": recordings}
     if payload.get("preprocess_vocals"):
         voice_inputs["preprocess_vocals"] = True
+    raw_augment = payload.get("pitch_augment", "auto")
+    if isinstance(raw_augment, bool):
+        raw_augment = "on" if raw_augment else "off"
+    augment = str(raw_augment).strip().lower()
+    voice_inputs["pitch_augment"] = augment if augment in ("auto", "on", "off") else "auto"
     separation_model = str(payload.get("separation_model", "")).strip()
     if separation_model:
         voice_inputs["separation_model"] = separation_model
@@ -1149,8 +1200,18 @@ def _content_type(path: Path) -> str:
     }
     if suffix in audio_types:
         return audio_types[suffix]
-    if suffix == ".mp4":
-        return "video/mp4"
+    video_types = {
+        ".mp4": "video/mp4",
+        ".m4v": "video/mp4",
+        ".webm": "video/webm",
+        ".mkv": "video/x-matroska",
+        ".mov": "video/quicktime",
+        ".avi": "video/x-msvideo",
+        ".flv": "video/x-flv",
+        ".ts": "video/mp2t",
+    }
+    if suffix in video_types:
+        return video_types[suffix]
     return "application/octet-stream"
 
 

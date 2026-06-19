@@ -56,6 +56,9 @@ class ApplioInferAdapter:
         protect: float = 0.45,
         clean_audio: bool = False,
         clean_strength: float = 0.3,
+        formant_shifting: bool = False,
+        formant_qfrency: float = 1.0,
+        formant_timbre: float = 1.0,
         dry_run: bool = False,
     ) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,6 +75,12 @@ class ApplioInferAdapter:
                 "1",
                 "--protect",
                 str(protect),
+                "--formant_shifting",
+                str(formant_shifting),
+                "--formant_qfrency",
+                str(formant_qfrency),
+                "--formant_timbre",
+                str(formant_timbre),
                 "--f0_method",
                 "rmvpe",
                 "--input_path",

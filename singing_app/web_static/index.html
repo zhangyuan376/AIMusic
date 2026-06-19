@@ -82,10 +82,11 @@
 
     <section>
       <h2>第 1 步：准备训练素材</h2>
-      <div class="muted">选择一种素材来源（二选一），之后都走同一个「第 2 步：训练」。</div>
+      <div class="muted">选择一种素材来源（三选一），之后都走同一个「第 2 步：训练」。</div>
       <div class="segmented">
         <button id="mat_a_tab" type="button" class="active" onclick="setMaterialMode('a')">素材 A · AI 生成<small>没有录音，用风格描述生成声线</small></button>
         <button id="mat_b_tab" type="button" onclick="setMaterialMode('b')">素材 B · 真人录音<small>有目标人声录音，音质最好</small></button>
+        <button id="mat_c_tab" type="button" onclick="setMaterialMode('c')">素材 C · 分离人声<small>复用第 3 步分离出的干声训练</small></button>
       </div>
 
       <div id="material_a">
@@ -126,8 +127,36 @@
           <button type="button" onclick="pickFile('rec_recordings', 'folder')">选择文件夹</button>
         </div>
         <div class="muted">支持 wav/mp3/m4a/flac 等常见格式，文件夹里的所有音频都会用于训练。</div>
+        <div style="margin-top:10px;"><label>音高增强（让说话声更会唱高音）</label>
+          <select id="recprep_pitch_augment">
+            <option value="auto" selected>自动（推荐：按素材音域判断）</option>
+            <option value="on">强制开启（±4 半音，训练约 3 倍时长）</option>
+            <option value="off">关闭</option>
+          </select>
+        </div>
         <button id="recprep_button" class="big" style="margin-top:12px;" onclick="prepareRecordings()">准备训练素材</button>
         <div id="recprep_status" class="muted" style="margin-top:10px;">把录音整理成训练就绪的样本，完成后会自动存为待训练声线，再到第 2 步训练。</div>
+      </div>
+
+      <div id="material_c" style="display:none">
+        <div class="muted">复用第 3 步「人声分离」得到的干声作为训练素材：先把目标歌手的多段歌做人声分离，再到这里多选拿去训练。这些音轨已是纯人声，不会再次降噪。</div>
+        <label>角色名</label>
+        <input id="sepmat_character_name" placeholder="例如 我的声线">
+        <label>选择分离人声（可多选，建议总时长尽量长）</label>
+        <div class="path-picker">
+          <select id="sepmat_select" multiple size="6" style="flex:1;min-width:0;"></select>
+          <button type="button" onclick="loadRecSeparations()">刷新历史</button>
+        </div>
+        <div class="muted">按住 Ctrl/Cmd 可多选。列表来自第 3 步的分离历史；文件缺失的条目不可选。</div>
+        <div style="margin-top:10px;"><label>音高增强（让说话声更会唱高音）</label>
+          <select id="sepmat_pitch_augment">
+            <option value="auto" selected>自动（推荐：按素材音域判断）</option>
+            <option value="on">强制开启（±4 半音，训练约 3 倍时长）</option>
+            <option value="off">关闭</option>
+          </select>
+        </div>
+        <button id="sepmat_button" class="big" style="margin-top:12px;" onclick="prepareSeparatedVocals()">准备训练素材</button>
+        <div id="sepmat_status" class="muted" style="margin-top:10px;">把选中的分离人声整理成训练就绪的样本，完成后会自动存为待训练声线，再到第 2 步训练。</div>
       </div>
     </section>
 
@@ -198,10 +227,10 @@
       <select id="separation_model_select" onchange="renderSeparationModelInfo()"></select>
       <div id="separation_model_info" class="muted">加载模型列表中...</div>
 
-      <label>音乐文件路径</label>
+      <label>音乐 / 视频文件路径</label>
       <div class="path-picker">
-        <input id="song_path" placeholder="点击右侧选择音乐文件">
-        <button type="button" onclick="pickFile('song_path', 'audio')">选择音乐</button>
+        <input id="song_path" placeholder="点击右侧选择音乐或视频文件">
+        <button type="button" onclick="pickFile('song_path', 'media')">选择音乐/视频</button>
       </div>
       <div class="audio-preview">
         <button type="button" class="secondary" onclick="loadAudioPreview()">加载音频并显示波形</button>
@@ -212,7 +241,7 @@
         <div class="waveform-wrap">
           <canvas id="song_waveform"></canvas>
         </div>
-        <div id="waveform_status" class="muted">选择音乐后点击“加载音频并显示波形”。可拖选区中间移动整段，拖左右边缘调整起止点。</div>
+        <div id="waveform_status" class="muted">选择音乐或视频后点击“加载音频并显示波形”。可拖选区中间移动整段，拖左右边缘调整起止点。视频会自动提取音频。</div>
       </div>
       <div class="grid">
         <div><label>从第几秒开始</label><input id="start_seconds" type="number" value="0"></div>
@@ -233,9 +262,11 @@
       </div>
       <button type="button" class="secondary" onclick="useSelectedCover()">使用这个翻唱音频</button>
       <div id="cover_history_status" class="muted">生成完成后会自动保存到这里，下次可直接播放或复用。</div>
+      <div style="margin:6px 0 4px;"><label><input id="cover_smart" type="checkbox" checked onchange="toggleCoverSmart()"> 智能模式（推荐）：自动决定变调、共振峰等参数，无需手动设置</label></div>
+      <div id="cover_smart_hint" class="muted" style="margin-bottom:6px;">已开启智能模式：生成时会自动比对原唱与你的声线，挑好变调与跨性别共振峰，下面的高级参数会被忽略。</div>
       <details class="advanced">
         <summary>翻唱高级设置（音色/音准微调）</summary>
-        <div class="muted" style="margin:8px 0;">变调最关键：男声翻女声填 +12，女声翻男声填 -12，同性别留 0。其余默认即可。</div>
+        <div class="muted" style="margin:8px 0;">仅在关闭「智能模式」后生效。变调最关键：男声翻女声填 +12，女声翻男声填 -12，同性别留 0。其余默认即可。</div>
         <div class="grid">
           <div>
             <label>变调（半音）</label>
@@ -251,7 +282,16 @@
           <div><label>清辅音保护 protect（0–0.5）</label><input id="cover_protect" type="number" step="0.05" min="0" max="0.5" value="0.45"></div>
           <div><label>降噪强度 clean_strength（0–1）</label><input id="cover_clean_strength" type="number" step="0.05" min="0" max="1" value="0.3"></div>
         </div>
+        <div><label>去齿音 de-ess 强度（0–1）</label><input id="cover_deess_strength" type="number" step="0.05" min="0" max="1" value="0.3">
+          <div class="muted" style="margin-top:4px;">自动压制 sh/ch/s 高频齿音，减轻翘舌听感。0 关闭，0.3 温和，越大越强。只减听感、不改发音方式。</div>
+        </div>
         <div><label><input id="cover_clean_audio" type="checkbox"> 开启输出降噪（清理转换后人声的杂音，可能轻微损失细节）</label></div>
+        <div style="margin-top:10px;"><label><input id="cover_formant_shifting" type="checkbox"> 开启共振峰移位（跨性别翻唱更自然，能在不一味升调的前提下让音色更像目标性别）</label></div>
+        <div class="grid">
+          <div><label>共振峰频率 qfrency（&gt;1 更明显）</label><input id="cover_formant_qfrency" type="number" step="0.1" min="0" value="1.0"></div>
+          <div><label>共振峰音色 timbre（&gt;1 更明显）</label><input id="cover_formant_timbre" type="number" step="0.1" min="0" value="1.0"></div>
+        </div>
+        <div class="muted" style="margin-top:4px;">仅在勾选「共振峰移位」后生效。男声模型翻唱时适度调高可减轻「像男的」；调过头会失真，建议 1.0–1.6 之间试。</div>
       </details>
       <button class="big" onclick="makeCover()">生成翻唱音频</button>
       <div id="result_audio_panel" class="result-audio" style="display:none;">
@@ -299,6 +339,7 @@
     let activeTask = "";
     let trainingVoiceId = "";
     let recTrainInfo = null;
+    let prepStatusId = "recprep_status";
     let currentCoverAudioPath = "";
     let separationJobPath = "";
     let separationReady = false;
@@ -420,8 +461,12 @@
       } catch (err) {
         songAudioBuffer = null;
         drawWaveform();
-        waveformStatus(err.message, true);
-        alert(err.message);
+        if (isVideoPath($("song_path").value.trim())) {
+          waveformStatus("已选择视频，浏览器无法预览其波形。请在下方手动填写「从第几秒开始」和「截取多少秒」，分离时会自动从视频里提取音频。", false);
+        } else {
+          waveformStatus(err.message, true);
+          alert(err.message);
+        }
       }
     }
 
@@ -1054,11 +1099,37 @@
 
     let materialMode = "a";
     function setMaterialMode(mode) {
-      materialMode = mode === "b" ? "b" : "a";
+      materialMode = (mode === "b" || mode === "c") ? mode : "a";
       $("material_a").style.display = materialMode === "a" ? "block" : "none";
       $("material_b").style.display = materialMode === "b" ? "block" : "none";
+      $("material_c").style.display = materialMode === "c" ? "block" : "none";
       $("mat_a_tab").classList.toggle("active", materialMode === "a");
       $("mat_b_tab").classList.toggle("active", materialMode === "b");
+      $("mat_c_tab").classList.toggle("active", materialMode === "c");
+      if (materialMode === "c") loadRecSeparations().catch(() => {});
+    }
+
+    async function loadRecSeparations() {
+      const data = await api("/api/separations");
+      const list = data.separations || [];
+      const select = $("sepmat_select");
+      const previous = new Set(Array.from(select.selectedOptions).map(o => o.value));
+      select.innerHTML = "";
+      if (!list.length) {
+        const option = document.createElement("option");
+        option.textContent = "暂无分离历史，请先到第 3 步做人声分离";
+        option.disabled = true;
+        select.appendChild(option);
+        return;
+      }
+      for (const item of list) {
+        const option = document.createElement("option");
+        option.value = item.vocals_path || "";
+        option.textContent = (item.ready ? "" : "（文件缺失）") + (item.label || item.id);
+        option.disabled = !item.ready || !item.vocals_path;
+        if (previous.has(option.value)) option.selected = true;
+        select.appendChild(option);
+      }
     }
 
     function toggleEpochsAuto() {
@@ -1093,11 +1164,13 @@
         if (!recordings) throw new Error("请先在「素材 B」里选择存放录音的文件夹。");
         setButtonBusy("recprep_button", true, "正在准备...", "准备训练素材");
         setProgress("正在整理录音素材...", true);
+        prepStatusId = "recprep_status";
         $("recprep_status").textContent = "正在整理录音素材。";
         $("recprep_status").className = "muted";
         const result = await post("/api/create-recording-prepare-job", {
           character_name: characterName,
-          recordings
+          recordings,
+          pitch_augment: $("recprep_pitch_augment").value
         });
         recTrainInfo = { name: `${characterName} 声线`, description: "用真人录音准备的声线" };
         setJob(result.job_path);
@@ -1114,11 +1187,43 @@
       }
     }
 
+    async function prepareSeparatedVocals() {
+      try {
+        const characterName = $("sepmat_character_name").value.trim();
+        const recordings = Array.from($("sepmat_select").selectedOptions)
+          .map(o => o.value).filter(Boolean);
+        if (!characterName) throw new Error("请先在「素材 C」里填写角色名。");
+        if (!recordings.length) throw new Error("请先选择至少一条分离人声。");
+        setButtonBusy("sepmat_button", true, "正在准备...", "准备训练素材");
+        setProgress("正在整理分离人声素材...", true);
+        prepStatusId = "sepmat_status";
+        $("sepmat_status").textContent = "正在整理分离人声素材。";
+        $("sepmat_status").className = "muted";
+        const result = await post("/api/create-recording-prepare-job", {
+          character_name: characterName,
+          recordings,
+          pitch_augment: $("sepmat_pitch_augment").value
+        });
+        recTrainInfo = { name: `${characterName} 声线`, description: "用分离人声准备的声线" };
+        setJob(result.job_path);
+        startProgressPolling("recprep");
+        await runJob(true);
+        $("sepmat_status").textContent = "素材准备任务已启动，完成后会自动存为待训练声线。";
+      } catch (err) {
+        stopProgressPolling();
+        setButtonBusy("sepmat_button", false, "", "准备训练素材");
+        setProgress(err.message, false, true);
+        $("sepmat_status").textContent = err.message;
+        $("sepmat_status").className = "bad";
+        alert(err.message);
+      }
+    }
+
     async function registerPreparedVoice(artifacts) {
       const sampleDir = artifacts.sample_dir || "";
       if (!sampleDir) {
-        $("recprep_status").textContent = "素材准备结束，但没找到样本目录，无法存为待训练声线。";
-        $("recprep_status").className = "bad";
+        $(prepStatusId).textContent = "素材准备结束，但没找到样本目录，无法存为待训练声线。";
+        $(prepStatusId).className = "bad";
         return;
       }
       try {
@@ -1131,13 +1236,13 @@
         await loadVoices(saved.voice.id);
         $("voice_select").value = saved.voice.id;
         updateVoiceHint();
-        $("recprep_status").textContent = `已存为待训练声线“${saved.voice.name}”。请到第 2 步点「训练模型」。`;
-        $("recprep_status").className = "muted";
-        setProgress("录音素材已准备好并存为待训练声线，请到第 2 步训练。", false);
+        $(prepStatusId).textContent = `已存为待训练声线“${saved.voice.name}”。请到第 2 步点「训练模型」。`;
+        $(prepStatusId).className = "muted";
+        setProgress("训练素材已准备好并存为待训练声线，请到第 2 步训练。", false);
         $("voice_select").scrollIntoView({ behavior: "smooth", block: "center" });
       } catch (err) {
-        $("recprep_status").textContent = `素材准备结束，但自动存为待训练声线失败：${err.message}`;
-        $("recprep_status").className = "bad";
+        $(prepStatusId).textContent = `素材准备结束，但自动存为待训练声线失败：${err.message}`;
+        $(prepStatusId).className = "bad";
       }
     }
 
@@ -1227,6 +1332,11 @@
       }
     }
 
+    function toggleCoverSmart() {
+      const on = $("cover_smart").checked;
+      $("cover_smart_hint").style.display = on ? "" : "none";
+    }
+
     async function makeCover() {
       try {
         const voice = voices.find(v => v.id === $("voice_select").value);
@@ -1246,7 +1356,12 @@
           index_rate: $("cover_index_rate").value,
           protect: $("cover_protect").value,
           clean_audio: $("cover_clean_audio").checked,
-          clean_strength: $("cover_clean_strength").value
+          clean_strength: $("cover_clean_strength").value,
+          deess_strength: $("cover_deess_strength").value,
+          smart: $("cover_smart").checked,
+          formant_shifting: $("cover_formant_shifting").checked,
+          formant_qfrency: $("cover_formant_qfrency").value,
+          formant_timbre: $("cover_formant_timbre").value
         });
         setJob(result.job_path);
         startProgressPolling("cover");
@@ -1392,7 +1507,8 @@
           }
           if (activeTask === "recprep") {
             setButtonBusy("recprep_button", false, "", "准备训练素材");
-            $("recprep_status").textContent = "素材已准备完成，正在存为待训练声线。";
+            setButtonBusy("sepmat_button", false, "", "准备训练素材");
+            $(prepStatusId).textContent = "素材已准备完成，正在存为待训练声线。";
             registerPreparedVoice(data.artifacts || {});
           }
           if (activeTask === "separation") {
@@ -1412,6 +1528,7 @@
           setProgress(lastMessage, false, true);
           setButtonBusy("audition_button", false, "", "生成试听声线");
           setButtonBusy("recprep_button", false, "", "准备训练素材");
+          setButtonBusy("sepmat_button", false, "", "准备训练素材");
           setButtonBusy("train_button", false, "", "训练模型");
           setButtonBusy("separate_button", false, "", "开始人声分离");
           stopProgressPolling();
@@ -1455,10 +1572,16 @@
     }
 
     const AUDIO_EXTS = [".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus"];
+    const VIDEO_EXTS = [".mp4", ".mkv", ".mov", ".webm", ".avi", ".flv", ".m4v", ".ts"];
     function isAudioPath(path) {
       if (!path) return false;
       const lower = String(path).toLowerCase();
       return AUDIO_EXTS.some(ext => lower.endsWith(ext));
+    }
+    function isVideoPath(path) {
+      if (!path) return false;
+      const lower = String(path).toLowerCase();
+      return VIDEO_EXTS.some(ext => lower.endsWith(ext));
     }
     function downloadUrl(path) {
       return `/api/file?path=${encodeURIComponent(path)}&download=1`;
