@@ -14,6 +14,7 @@ from singing_app.adapters.cosyvoice import CosyVoiceAdapter
 from singing_app.adapters.demucs import DemucsAdapter
 from singing_app.adapters.edge_tts import EdgeTtsAdapter
 from singing_app.adapters.ffmpeg import FfmpegAdapter
+from singing_app.adapters.seedvc import SeedVcAdapter
 from singing_app.characters.project import CharacterProject, VoiceModelRef
 from singing_app.config import RUNTIME
 from singing_app.harness.models import HarnessJob, StepContext, StepResult
@@ -35,6 +36,7 @@ class HarnessRunner:
         self.applio_train = ApplioTrainAdapter()
         self.edge_tts = EdgeTtsAdapter()
         self.cosyvoice = CosyVoiceAdapter()
+        self.seedvc = SeedVcAdapter()
 
         self.handlers: dict[str, Callable[[StepContext], StepResult]] = {
             "check_runtime": self.check_runtime,
@@ -48,6 +50,7 @@ class HarnessRunner:
             "separate_vocals": self.separate_vocals,
             "use_separated_audio": self.use_separated_audio,
             "convert_vocals": self.convert_vocals,
+            "convert_vocals_zeroshot": self.convert_vocals_zeroshot,
             "mix_audio": self.mix_audio,
             "export_result": self.export_result,
         }
@@ -563,6 +566,37 @@ class HarnessRunner:
             formant_shifting=bool(settings.get("formant_shifting", False)),
             formant_qfrency=float(settings.get("formant_qfrency", 1.0)),
             formant_timbre=float(settings.get("formant_timbre", 1.0)),
+            dry_run=context.dry_run,
+        )
+        return StepResult(status="succeeded", artifacts={"converted_vocals": str(output_path)})
+
+    def convert_vocals_zeroshot(self, context: StepContext) -> StepResult:
+        """Zero-shot SVC: convert the song's vocals into a reference voice's timbre.
+
+        No trained model — Seed-VC takes the separated vocals (source pitch +
+        articulation) and a short reference clip (target timbre) and produces
+        converted vocals. Writes the same ``converted_vocals`` artifact as the
+        RVC path, so ``mix_audio``/``export_result`` are reused unchanged.
+        """
+        if not context.dry_run and not self.seedvc.available():
+            raise RuntimeError(
+                "零样本翻唱引擎 Seed-VC 尚未安装。请先安装 tools/seed-vc 及其 venv，"
+                "或改用「用已训练的声线模型（RVC）」方式。"
+            )
+        reference = context.job.inputs.get("reference", {})
+        reference_audio = Path(reference.get("audio", ""))
+        if not context.dry_run and not reference_audio.is_file():
+            raise FileNotFoundError(f"参考音频不存在: {reference_audio}")
+        settings = context.job.settings.get("seedvc", {})
+        output_path = context.workspace / "audio" / "vocals_converted.wav"
+        self.seedvc.convert_vocals(
+            source_vocals=context.artifact_path("vocals"),
+            reference_audio=reference_audio,
+            output_path=output_path,
+            log_path=context.logs_dir / "convert_vocals_zeroshot.log",
+            semitones=int(settings.get("semitones", 0)),
+            diffusion_steps=int(settings.get("diffusion_steps", 30)),
+            inference_cfg_rate=float(settings.get("inference_cfg_rate", 0.7)),
             dry_run=context.dry_run,
         )
         return StepResult(status="succeeded", artifacts={"converted_vocals": str(output_path)})

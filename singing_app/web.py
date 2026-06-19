@@ -107,6 +107,9 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 ))
             elif parsed.path == "/api/covers":
                 self._send_json({"covers": load_cover_library()})
+            elif parsed.path == "/api/cover-detail":
+                cover_id = parse_qs(parsed.query).get("id", [""])[0]
+                self._send_json(cover_detail(cover_id))
             elif parsed.path == "/api/samples":
                 job_path = Path(parse_qs(parsed.query).get("job_path", [""])[0])
                 self._send_json({"samples": list_voice_samples(job_path)})
@@ -143,6 +146,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
             payload = self._read_json()
             if parsed.path == "/api/create-audio-cover-job":
                 self._send_json({"job_path": str(write_audio_cover_job(payload))})
+            elif parsed.path == "/api/create-zeroshot-cover-job":
+                self._send_json({"job_path": str(write_zeroshot_cover_job(payload))})
             elif parsed.path == "/api/create-separation-job":
                 self._send_json({"job_path": str(write_separation_job(payload))})
             elif parsed.path == "/api/create-voice-job":
@@ -378,6 +383,8 @@ def write_training_job_from_voice(payload: dict[str, Any]) -> Path:
 def auto_bind_trained_voice(job_path: Path) -> str:
     try:
         job = _read_json(job_path)
+        if "train_voice_model" not in list(job.get("steps", [])):
+            return ""
         voice_id = str((job.get("inputs", {}).get("voice", {}) or {}).get("voice_id", "")).strip()
         if not voice_id:
             return ""
@@ -556,14 +563,127 @@ def update_cover(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def cover_detail(cover_id: str) -> dict[str, Any]:
+    """Build a full traceability view for one saved cover.
+
+    The saved cover record only keeps voice_id + job_path, so the material /
+    model / separation that produced it are reconstructed here by joining the
+    cover job JSON (the source of truth for that run's inputs), find_voice, and
+    a path-match into the separation library. Every lookup degrades gracefully:
+    a missing job file or cleaned artifact yields flags, not an error.
+    """
+    cover = next((c for c in load_cover_library() if c.get("id") == cover_id), None)
+    if cover is None:
+        return {"ok": False, "reason": "未找到该翻唱记录"}
+
+    job = _read_json_if_exists(Path(str(cover.get("job_path", "")))) or {}
+    inputs = job.get("inputs", {}) or {}
+    job_song = inputs.get("song", {}) or {}
+    job_voice = inputs.get("voice", {}) or {}
+    rvc = (job.get("settings", {}) or {}).get("rvc", {}) or {}
+
+    is_zeroshot = bool(cover.get("zeroshot")) or "convert_vocals_zeroshot" in list(job.get("steps", []))
+    reference_audio = str(
+        cover.get("reference_audio") or (inputs.get("reference", {}) or {}).get("audio", "")
+    ).strip()
+
+    voice_id = str(cover.get("voice_id") or job_voice.get("voice_id") or "").strip()
+
+    if is_zeroshot:
+        seedvc = (job.get("settings", {}) or {}).get("seedvc", {}) or {}
+        model = {
+            "zeroshot": True,
+            "reference_audio": reference_audio,
+            "reference_ready": bool(reference_audio and Path(reference_audio).is_file()),
+        }
+        # Surface the transpose under the same "rvc" key the UI reads for params.
+        rvc = {"pitch": seedvc.get("semitones", 0)}
+        material = {"sample_dir": "", "sample_audio": "", "training_job_path": "", "traceable": False}
+    else:
+        model = {
+            "voice_id": voice_id,
+            "model_name": str(job_voice.get("model_name", "")),
+            "model_path": str(job_voice.get("model_path", "")),
+        }
+        sample_dir = ""
+        training_job_path = ""
+        try:
+            voice = find_voice(voice_id) if voice_id else None
+        except Exception:
+            voice = None
+        if voice:
+            model.update({
+                "name": str(voice.get("name", "")),
+                "ready": bool(voice.get("ready", False)),
+                "training_model_name": str(voice.get("training_model_name", "")),
+            })
+            sample_dir = str(voice.get("sample_dir", "")).strip()
+            training_job_path = str(voice.get("training_job_path", "")).strip()
+
+        sample_audio = ""
+        if sample_dir and Path(sample_dir).is_dir():
+            wavs = sorted(Path(sample_dir).glob("*.wav"))
+            if wavs:
+                sample_audio = str(wavs[0])
+        material = {
+            "sample_dir": sample_dir,
+            "sample_audio": sample_audio,
+            "training_job_path": training_job_path,
+            "traceable": bool(sample_dir or training_job_path),
+        }
+
+    vocals_path = str(job_song.get("vocals_path", ""))
+    instrumental_path = str(job_song.get("instrumental_path", ""))
+    separation: dict[str, Any] = {
+        "matched": False,
+        "label": "",
+        "model": "",
+        "vocals_path": vocals_path,
+        "instrumental_path": instrumental_path,
+        "vocals_ready": bool(vocals_path and Path(vocals_path).is_file()),
+        "instrumental_ready": bool(instrumental_path and Path(instrumental_path).is_file()),
+    }
+    for sep in load_separation_library():
+        if vocals_path and str(sep.get("vocals_path", "")) == vocals_path:
+            sep_job = _read_json_if_exists(Path(str(sep.get("job_path", "")))) or {}
+            separation.update({
+                "matched": True,
+                "label": str(sep.get("label", "")),
+                "model": str(((sep_job.get("settings", {}) or {}).get("separation", {}) or {}).get("model", "")),
+            })
+            break
+
+    return {
+        "ok": True,
+        "cover": {
+            "id": cover.get("id"),
+            "label": cover.get("label"),
+            "audio_path": cover.get("audio_path", ""),
+            "ready": bool(cover.get("ready")),
+            "updated_at": cover.get("updated_at", ""),
+            "song_path": cover.get("song_path", ""),
+            "start_seconds": cover.get("start_seconds"),
+            "duration_seconds": cover.get("duration_seconds"),
+        },
+        "rvc": rvc,
+        "model": model,
+        "material": material,
+        "separation": separation,
+    }
+
+
 def auto_save_cover_result(job_path: Path) -> str:
     try:
         job = _read_json(job_path)
         steps = list(job.get("steps", []))
-        if steps != ["check_runtime", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "export_result"]:
+        rvc_steps = ["check_runtime", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "export_result"]
+        zeroshot_steps = ["check_runtime", "use_separated_audio", "convert_vocals_zeroshot", "mix_audio", "export_result"]
+        if steps not in (rvc_steps, zeroshot_steps):
             return ""
+        is_zeroshot = steps == zeroshot_steps
         song = job.get("inputs", {}).get("song", {})
         voice = job.get("inputs", {}).get("voice", {})
+        reference_audio = str(job.get("inputs", {}).get("reference", {}).get("audio", "")).strip()
         artifacts = job_status(job_path, {"running": False, "current_job": "", "messages": []}).get("artifacts") or {}
         audio_path = _required_existing_file(str(artifacts.get("result_audio") or artifacts.get("final_mix") or ""), "cover audio")
         song_path = Path(str(song.get("path", "")))
@@ -571,12 +691,15 @@ def auto_save_cover_result(job_path: Path) -> str:
         duration_seconds = float(song.get("duration_seconds", 30))
         voice_id = str(voice.get("voice_id", "")).strip()
         label_base = song_path.stem if song_path.name else Path(audio_path).stem
-        record_id = _slugify(f"{label_base}_{voice_id}_{start_seconds:.2f}_{duration_seconds:.2f}")
+        who = "零样本" if is_zeroshot else (voice_id or "voice")
+        record_id = _slugify(f"{label_base}_{who}_{start_seconds:.2f}_{duration_seconds:.2f}")
         record = {
             "id": record_id,
-            "label": f"{label_base} / {voice_id or 'voice'} [{start_seconds:.2f}s - {start_seconds + duration_seconds:.2f}s]",
+            "label": f"{label_base} / {who} [{start_seconds:.2f}s - {start_seconds + duration_seconds:.2f}s]",
             "song_path": str(song_path),
             "voice_id": voice_id,
+            "zeroshot": is_zeroshot,
+            "reference_audio": reference_audio,
             "start_seconds": start_seconds,
             "duration_seconds": duration_seconds,
             "job_path": str(job_path),
@@ -947,15 +1070,91 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
     return job_path
 
 
+def write_zeroshot_cover_job(payload: dict[str, Any]) -> Path:
+    """Build a no-training cover job: a reference clip + separated song vocals.
+
+    Mirrors write_audio_cover_job but swaps RVC (trained model) for Seed-VC
+    zero-shot SVC: the timbre comes from a short reference clip instead of a
+    per-voice model, so there is no voice_id / import_voice_model / convert_vocals
+    step. The separation, mix and export stages are identical, so the saved
+    cover plays back and traces the same way (history shows the reference clip
+    in place of a model).
+    """
+    character_name = _required_text(payload, "character_name")
+    song_path = _required_path(payload, "song_path")
+    dry_run = bool(payload.get("dry_run", False))
+    reference_value = str(payload.get("reference_audio", "")).strip()
+    if not reference_value:
+        raise ValueError("请先选择一段参考音频（几秒到一小段目标声音即可）。")
+    reference_audio = (
+        Path(reference_value)
+        if dry_run
+        else _required_existing_file(reference_value, "reference audio")
+    )
+    separation = load_separation_artifacts(
+        str(payload.get("separation_job_path", "")).strip(),
+        validate=not dry_run,
+    )
+    if not separation:
+        raise ValueError("请先完成人声分离，或从分离历史选择一个结果。")
+
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_cover_zeroshot"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+
+    semitones = int(payload.get("pitch", 0) or 0)
+    # Smart mode (default): transpose the source vocals toward the reference
+    # voice's register so a cross-gender cover doesn't sound off. Any failure
+    # degrades to no transpose rather than blocking job creation.
+    if bool(payload.get("smart", True)):
+        try:
+            suggestion = suggest_pitch_shift(Path(separation["vocals"]), [reference_audio])
+            if suggestion.get("ok"):
+                semitones = int(suggestion["recommended"])
+        except Exception:
+            pass
+
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "use_separated_audio", "convert_vocals_zeroshot", "mix_audio", "export_result"],
+        "inputs": {
+            "reference": {"audio": str(reference_audio)},
+            "song": {
+                "path": str(song_path),
+                "start_seconds": float(payload.get("start_seconds", 0)),
+                "duration_seconds": float(payload.get("duration_seconds", 30)),
+                "vocals_path": separation["vocals"],
+                "instrumental_path": separation["instrumental"],
+            },
+        },
+        "settings": {
+            "seedvc": {
+                "semitones": semitones,
+                "diffusion_steps": int(payload.get("diffusion_steps", 30) or 30),
+                "inference_cfg_rate": float(payload.get("inference_cfg_rate", 0.7) or 0.7),
+            },
+            "mix": {
+                "instrumental_volume": 0.88,
+                "vocal_volume": 1.12,
+                "deess_strength": float(payload.get("deess_strength", 0.0) or 0.0),
+            },
+        },
+    })
+    return job_path
+
+
 def _smart_cover_rvc(payload: dict[str, Any], voice_id: str) -> dict[str, Any]:
     """Auto-derive transpose + formant for a cover from measured pitch.
 
     Reuses the same F0 comparison as the manual "auto-detect" button, then maps
     the octave-rounded transpose to a conservative cross-gender formant nudge.
     Any failure (e.g. separation not ready in dry-run) degrades to no transpose
-    rather than blocking job creation. index_rate/protect keep the balanced
-    defaults — those are quality knobs an outsider should not have to reason
-    about, and a wrong auto value there hurts more than it helps.
+    rather than blocking job creation. index_rate/protect favor articulation
+    clarity (lower index_rate, max protect) so converted lyrics stay legible —
+    the common complaint from outsiders is mushy 咬字, not insufficient timbre
+    match, and these are knobs they should not have to reason about.
     """
     pitch = int(payload.get("pitch", 0) or 0)
     try:
@@ -964,7 +1163,7 @@ def _smart_cover_rvc(payload: dict[str, Any], voice_id: str) -> dict[str, Any]:
             pitch = int(suggestion["recommended"])
     except Exception:
         pass
-    out: dict[str, Any] = {"pitch": pitch, "index_rate": 0.7, "protect": 0.45}
+    out: dict[str, Any] = {"pitch": pitch, "index_rate": 0.55, "protect": 0.5}
     out.update(suggest_formant(pitch))
     return out
 

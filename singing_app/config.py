@@ -157,6 +157,22 @@ class RuntimePaths:
         return self.cosyvoice_root / "pretrained_models" / "CosyVoice2-0.5B"
 
     @property
+    def seedvc_root(self) -> Path:
+        """Seed-VC repo root (zero-shot singing voice conversion, not in git)."""
+        override = os.environ.get("AI_SINGING_SEEDVC_ROOT")
+        if override:
+            return Path(override)
+        return self.app_root / "tools" / "seed-vc"
+
+    @property
+    def seedvc_python(self) -> Path:
+        """Python for the Seed-VC engine (its own venv, isolated from Applio)."""
+        override = os.environ.get("AI_SINGING_SEEDVC_PYTHON")
+        if override:
+            return Path(override)
+        return _venv_python(self.seedvc_root / ".venv")
+
+    @property
     def applio_rmvpe(self) -> Path:
         """Pitch-extraction model required for training (extract) and inference."""
         return self.applio_root / "rvc" / "models" / "predictors" / "rmvpe.pt"

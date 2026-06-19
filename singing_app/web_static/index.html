@@ -9,7 +9,7 @@
     body { margin: 0; background: #0f1117; color: #f3f6ff; }
     header { padding: 28px 20px; text-align: center; background: linear-gradient(135deg, #223052, #171923); border-bottom: 1px solid #2b3140; }
     h1 { margin: 0 0 8px; font-size: 30px; }
-    main { max-width: 1080px; margin: 0 auto; padding: 22px; }
+    main.content { padding: 22px; }
     section { margin-bottom: 18px; padding: 18px; background: #171b24; border: 1px solid #2b3140; border-radius: 16px; }
     h2 { margin: 0 0 14px; font-size: 20px; }
     h3 { margin: 18px 0 10px; font-size: 16px; color: #c8d3ef; }
@@ -58,35 +58,51 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .progress-bar { margin-top: 10px; height: 10px; border-radius: 6px; background: #1c2433; border: 1px solid #30384a; overflow: hidden; }
     .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #4f6bff, #91adff); transition: width 0.4s ease; }
-    @media (max-width: 860px) { .steps, .grid, .path-picker { grid-template-columns: 1fr; } }
+    .app-shell { display: flex; align-items: stretch; min-height: calc(100vh - 96px); }
+    .sidebar { flex: 0 0 200px; background: #141821; border-right: 1px solid #2b3140; padding: 16px 12px; }
+    .nav-item { display: block; width: 100%; margin: 0 0 6px; text-align: left; background: transparent; border: 0; padding: 12px 14px; border-radius: 10px; color: #cdd6f4; font-weight: 600; font-size: 15px; cursor: pointer; }
+    .nav-item:hover { background: #1c2433; }
+    .nav-item.active { background: #4f7cff; color: #fff; }
+    .content { flex: 1; min-width: 0; padding: 22px; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .history-item { border: 1px solid #2b3140; border-radius: 12px; margin-bottom: 10px; background: #101520; overflow: hidden; }
+    .history-head { display: flex; gap: 10px; align-items: center; padding: 12px 14px; cursor: pointer; }
+    .history-head:hover { background: #161c28; }
+    .history-title { flex: 1; min-width: 0; font-weight: 600; word-break: break-all; }
+    .history-body { padding: 12px 14px; border-top: 1px solid #2b3140; }
+    .history-body h4 { margin: 14px 0 6px; color: #91adff; font-size: 14px; }
+    .history-body audio { width: 100%; margin-top: 6px; }
+    .history-meta { font-size: 12px; color: #98a6c5; word-break: break-all; }
+    @media (max-width: 860px) { .steps, .grid, .path-picker { grid-template-columns: 1fr; } .app-shell { flex-direction: column; } .sidebar { flex: auto; display: flex; gap: 6px; overflow-x: auto; border-right: 0; border-bottom: 1px solid #2b3140; } .nav-item { width: auto; margin: 0; white-space: nowrap; } }
   </style>
 </head>
 <body>
   <header>
     <h1>AI Singing Video</h1>
-    <div class="muted">流程：先准备一个声线（A：描述 + AI 生成，或 B：用真人录音训练），再做人声分离，最后生成翻唱音频。</div>
+    <div class="muted">流程：准备声线（素材 + 训练）→ 人声分离 → 生成翻唱。左侧切换各步骤，历史记录可回看每次翻唱及其来源。</div>
   </header>
 
-  <main>
-    <section>
-      <div class="steps">
-        <div class="step"><b>① 准备声线</b><span>准备素材（AI 生成或真人录音），再训练模型。</span></div>
-        <div class="step"><b>② 人声分离</b><span>把原唱拆成人声和伴奏。</span></div>
-        <div class="step"><b>③ 生成翻唱</b><span>用声线套用到伴奏，产出翻唱音频。</span></div>
-      </div>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <button type="button" class="nav-item active" data-page="material">素材</button>
+      <button type="button" class="nav-item" data-page="train">模型训练</button>
+      <button type="button" class="nav-item" data-page="separation">人声分离</button>
+      <button type="button" class="nav-item" data-page="cover">AI翻唱</button>
+      <button type="button" class="nav-item" data-page="history">历史记录</button>
+    </nav>
 
-      <h2>第一部分 · 准备一个可翻唱的声线</h2>
-      <div class="muted">分两步：先准备训练素材（第 1 步），再训练模型（第 2 步），得到一条可翻唱的「历史声线」。</div>
-      <div class="muted" style="margin-top:6px;">训练素材有两种来源，<b>二选一</b>即可：<b>A</b> 用风格描述让 AI 生成样本（没有录音时用）；<b>B</b> 用你自己的真人录音（音质最好）。两者之后都走同一个「第 2 步：训练」。</div>
-    </section>
-
+    <main class="content">
+      <div class="page active" id="page-material">
     <section>
       <h2>第 1 步：准备训练素材</h2>
       <div class="muted">选择一种素材来源（三选一），之后都走同一个「第 2 步：训练」。</div>
-      <div class="segmented">
-        <button id="mat_a_tab" type="button" class="active" onclick="setMaterialMode('a')">素材 A · AI 生成<small>没有录音，用风格描述生成声线</small></button>
-        <button id="mat_b_tab" type="button" onclick="setMaterialMode('b')">素材 B · 真人录音<small>有目标人声录音，音质最好</small></button>
-        <button id="mat_c_tab" type="button" onclick="setMaterialMode('c')">素材 C · 分离人声<small>复用第 3 步分离出的干声训练</small></button>
+      <div style="margin:10px 0;">
+        <select id="material_mode_select" onchange="setMaterialMode(this.value)">
+          <option value="a">素材 A · AI 生成（没有录音，用风格描述生成声线）</option>
+          <option value="b">素材 B · 真人录音（有目标人声录音，音质最好）</option>
+          <option value="c">素材 C · 分离人声（复用第 3 步分离出的干声训练）</option>
+        </select>
       </div>
 
       <div id="material_a">
@@ -95,21 +111,7 @@
         <input id="voice_character_name" placeholder="例如 Pomao">
         <label>角色/声线风格</label>
         <textarea id="voice_description" placeholder="例如：小只、安静、略带鼻音和一点点沙哑，但吐字清楚"></textarea>
-        <label>声线生成引擎</label>
-        <select id="tts_engine" onchange="toggleCosyvoiceFields()">
-          <option value="edge_tts">Edge TTS（联网、微软预置嗓音，无需录音）</option>
-          <option value="cosyvoice">CosyVoice 2 克隆（本地离线、用一小段真人录音克隆音色）</option>
-        </select>
-        <div id="cosyvoice_fields" style="display:none">
-          <label>参考录音（3–10 秒真人清唱/说话，wav）</label>
-          <div class="path-picker">
-            <input id="reference_audio" placeholder="参考录音文件路径">
-            <button type="button" onclick="pickFile('reference_audio', 'audio')">选择录音</button>
-          </div>
-          <label>参考录音对应的文字</label>
-          <textarea id="reference_text" placeholder="把这段参考录音里说/唱的内容原样写下来"></textarea>
-          <div class="muted">CosyVoice 会用这段录音的音色把训练文本逐句念出来。需要先 <code>bash scripts/setup_cosyvoice.sh</code> 安装引擎。</div>
-        </div>
+        <div class="muted">完全由 AI 生成，无需录音或文字，直接生成一组试听样本挑选。</div>
         <button id="audition_button" class="big" onclick="generateAuditions()">生成试听声线</button>
         <div id="audition_status" class="muted" style="margin-top:10px;">还没有生成试听。</div>
         <button class="secondary" style="margin-top:10px;" onclick="loadSamples()">刷新试听列表</button>
@@ -159,7 +161,9 @@
         <div id="sepmat_status" class="muted" style="margin-top:10px;">把选中的分离人声整理成训练就绪的样本，完成后会自动存为待训练声线，再到第 2 步训练。</div>
       </div>
     </section>
+      </div>
 
+      <div class="page" id="page-train">
     <section>
       <h2>第 2 步：训练模型（得到可翻唱的历史声线）</h2>
       <div class="muted" id="train_rule_hint">从下面选一条待训练声线（素材 A 或 B 准备的都在这里），训练完成后自动绑定，即可翻唱。</div>
@@ -172,10 +176,13 @@
       <div class="grid">
         <div>
           <label>训练轮数</label>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <label style="font-weight:normal;white-space:nowrap;margin:0;"><input type="checkbox" id="train_epochs_auto" checked onchange="toggleEpochsAuto()"> 自动</label>
-            <input id="train_epochs" type="number" value="200" disabled style="flex:1;min-width:0;">
+          <div style="margin:6px 0;">
+            <select id="train_epochs_mode" onchange="toggleEpochsAuto()">
+              <option value="auto" selected>自动（按录音时长决定，推荐）</option>
+              <option value="manual">手动指定轮数</option>
+            </select>
           </div>
+          <input id="train_epochs" type="number" value="200" placeholder="训练轮数" style="display:none;">
         </div>
         <div><label>模型名</label><input id="train_model_name" placeholder="留空自动用角色名拼音+voice_model"></div>
       </div>
@@ -207,12 +214,9 @@
         <div id="checkpoint_list" class="muted" style="margin-top:8px;"></div>
       </div>
     </section>
+      </div>
 
-    <section>
-      <h2>第二部分 · 翻唱</h2>
-      <div class="muted">第 1–2 步得到的历史声线都能用。先做人声分离，再生成翻唱音频。</div>
-    </section>
-
+      <div class="page" id="page-separation">
     <section>
       <h2>第 3 步：人声分离</h2>
       <label>分离历史</label>
@@ -251,20 +255,49 @@
       <div id="separation_status" class="muted">先把原唱分成人声和伴奏，完成后再生成翻唱音频。</div>
       <div id="separation_saved" class="saved" style="display:none"></div>
     </section>
+      </div>
 
+      <div class="page" id="page-cover">
     <section>
       <h2>第 4 步：生成翻唱音频</h2>
-      <div class="muted">使用第 3 步分离出来的人声和伴奏，再套用第 2 步训练好的历史声线生成翻唱音频。</div>
-      <label>历史翻唱</label>
-      <div class="path-picker">
-        <select id="cover_select"></select>
-        <button type="button" onclick="loadCovers()">刷新历史</button>
+      <div class="muted">使用第 3 步分离出来的人声和伴奏，再套用第 2 步训练好的历史声线生成翻唱音频。生成的成品会自动存到「历史记录」页。</div>
+      <label>翻唱方式</label>
+      <div style="margin:6px 0;">
+        <select id="cover_engine" onchange="toggleCoverEngine()">
+          <option value="rvc" selected>用已训练的声线模型（RVC）</option>
+          <option value="seedvc">上传一段声音直接翻唱（零样本·免训练）</option>
+        </select>
       </div>
-      <button type="button" class="secondary" onclick="useSelectedCover()">使用这个翻唱音频</button>
-      <div id="cover_history_status" class="muted">生成完成后会自动保存到这里，下次可直接播放或复用。</div>
-      <div style="margin:6px 0 4px;"><label><input id="cover_smart" type="checkbox" checked onchange="toggleCoverSmart()"> 智能模式（推荐）：自动决定变调、共振峰等参数，无需手动设置</label></div>
+      <div id="cover_engine_hint" class="muted" style="margin-bottom:6px;">零样本：不用训练，挑一段几秒到一小段的目标声音即可。咬字/旋律来自原唱，音色取自你给的参考片段。</div>
+      <div id="cover_voice_block">
+        <label>声线模型</label>
+        <div style="margin:6px 0;">
+          <select id="cover_voice_select"></select>
+        </div>
+        <div id="cover_voice_hint" class="muted">做过「模型训练」会自动选中，也可以在这里手动切换。</div>
+      </div>
+      <div id="cover_reference_block" style="display:none;">
+        <label>参考音频（目标声音，几秒到一小段即可）</label>
+        <div class="path-picker" style="margin:6px 0;">
+          <input id="cover_reference" placeholder="选择一段目标声音的音频文件">
+          <button type="button" class="secondary" onclick="pickFile('cover_reference', 'file')">选择音频</button>
+        </div>
+        <div class="muted">越接近歌唱、越干净（无背景音乐/噪声）的参考片段，音色越像。</div>
+      </div>
+      <label style="display:block;margin-top:10px;">人声分离</label>
+      <div style="margin:6px 0;">
+        <select id="cover_separation_select"></select>
+      </div>
+      <div id="cover_separation_hint" class="muted">做过「人声分离」会自动选中最近一条，也可以手动选历史记录。</div>
+      <label style="display:block;margin-top:10px;">参数模式</label>
+      <div style="margin:6px 0;">
+        <select id="cover_smart" onchange="toggleCoverSmart()">
+          <option value="smart" selected>智能模式（推荐）：自动决定变调、共振峰等参数</option>
+          <option value="manual">手动设置：自己调下面的高级参数</option>
+        </select>
+      </div>
       <div id="cover_smart_hint" class="muted" style="margin-bottom:6px;">已开启智能模式：生成时会自动比对原唱与你的声线，挑好变调与跨性别共振峰，下面的高级参数会被忽略。</div>
-      <details class="advanced">
+      <details class="advanced" id="cover_advanced">
         <summary>翻唱高级设置（音色/音准微调）</summary>
         <div class="muted" style="margin:8px 0;">仅在关闭「智能模式」后生效。变调最关键：男声翻女声填 +12，女声翻男声填 -12，同性别留 0。其余默认即可。</div>
         <div class="grid">
@@ -293,7 +326,7 @@
         </div>
         <div class="muted" style="margin-top:4px;">仅在勾选「共振峰移位」后生效。男声模型翻唱时适度调高可减轻「像男的」；调过头会失真，建议 1.0–1.6 之间试。</div>
       </details>
-      <button class="big" onclick="makeCover()">生成翻唱音频</button>
+      <button id="cover_button" class="big" onclick="makeCover()">生成翻唱音频</button>
       <div id="result_audio_panel" class="result-audio" style="display:none;">
         <b>翻唱音频</b>
         <audio id="result_audio_player" controls></audio>
@@ -302,31 +335,24 @@
       </div>
       <button class="secondary" onclick="openOutput()">打开结果文件夹</button>
     </section>
+      </div>
 
-    <section>
-      <h2>状态</h2>
-      <div id="friendly_status" class="muted">还没有开始。</div>
-      <div id="task_progress" class="progress-box muted">当前没有任务运行。</div>
-      <pre id="runner"></pre>
-      <h3>输出文件</h3>
-      <pre id="artifacts"></pre>
-      <details>
-        <summary>高级/调试信息</summary>
-        <button onclick="loadRuntime()">检查环境</button>
-        <label><input id="dry_run" type="checkbox" style="width:auto"> 只测试流程，不真正生成</label>
-        <label><input id="no_resume" type="checkbox" checked style="width:auto"> 从第一步重跑</label>
-        <label>当前 Job</label>
-        <select id="job_select"></select>
-        <div class="path-picker">
-          <input id="job_path">
-          <button type="button" onclick="pickFile('job_path', 'job')">选择 Job</button>
-        </div>
-        <h3>Runtime</h3><pre id="runtime"></pre>
-        <h3>State</h3><pre id="state"></pre>
-        <h3>Logs</h3><pre id="logs"></pre>
-      </details>
-    </section>
-  </main>
+      <div class="page" id="page-history">
+        <section>
+          <h2>历史记录</h2>
+          <div class="muted">每次生成的翻唱都会保存在这里。点击任意一条可展开，查看它用到的素材、模型和人声分离。</div>
+          <button class="secondary" onclick="loadHistory()">刷新</button>
+          <div id="history_list" class="muted" style="margin-top:12px;">切到本页会自动加载历史翻唱。</div>
+        </section>
+      </div>
+
+      <section id="shared-status" style="display:none;">
+        <div id="friendly_status" class="muted">还没有开始。</div>
+        <div id="task_progress" class="progress-box muted">当前没有任务运行。</div>
+        <input id="job_path" type="hidden">
+      </section>
+    </main>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -334,7 +360,6 @@
     let lastSampleDir = "";
     let voices = [];
     let separations = [];
-    let covers = [];
     let progressTimer = null;
     let activeTask = "";
     let trainingVoiceId = "";
@@ -401,6 +426,19 @@
       const button = $(id);
       button.disabled = busy;
       button.innerHTML = busy ? `<span class="busy"><span class="spinner"></span>${text}</span>` : idleText;
+      // Show progress right where the user clicked, not in a panel they have to
+      // scroll down to find. Only move on start (busy) so completion resets that
+      // touch several buttons don't yank the box to the wrong place.
+      if (busy) attachProgressTo(id);
+    }
+
+    function attachProgressTo(anchorId) {
+      const anchor = $(anchorId);
+      const box = $("task_progress");
+      if (!anchor || !box) return;
+      anchor.insertAdjacentElement("afterend", box);
+      box.style.display = "";
+      try { box.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
     }
 
     function setProgress(text, busy = false, bad = false, percent = null) {
@@ -424,7 +462,6 @@
 
     function setJob(path) {
       $("job_path").value = path;
-      loadJobs();
       refreshStatus();
     }
 
@@ -805,28 +842,6 @@
       }
     }
 
-    async function loadRuntime() {
-      const data = await api("/api/runtime");
-      const ok = data.checks.every(c => c.ok);
-      $("runtime").textContent = data.checks.map(c => `${c.ok ? "OK" : "缺失"}  ${c.name} - ${c.message}`).join("\n");
-      $("runtime").className = ok ? "ok" : "bad";
-      status(ok ? "环境检查通过。" : "环境不完整，请先修复缺失项。", !ok);
-    }
-
-    async function loadJobs() {
-      const data = await api("/api/jobs");
-      const select = $("job_select");
-      const current = $("job_path").value;
-      select.innerHTML = "";
-      for (const job of data.jobs) {
-        const option = document.createElement("option");
-        option.value = job.path;
-        option.textContent = job.label;
-        if (job.path === current) option.selected = true;
-        select.appendChild(option);
-      }
-    }
-
     async function loadVoices(preferredVoiceId = "") {
       const data = await api("/api/voices");
       const previous = preferredVoiceId || $("voice_select").value;
@@ -843,6 +858,47 @@
         select.value = previous;
       }
       updateVoiceHint();
+      fillCoverVoices();
+    }
+
+    function fillCoverVoices() {
+      const select = $("cover_voice_select");
+      if (!select) return;
+      const previous = select.value || $("voice_select").value;
+      select.innerHTML = "";
+      if (!voices.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "暂无声线（请先到「模型训练」准备）";
+        select.appendChild(option);
+      }
+      for (const voice of voices) {
+        const option = document.createElement("option");
+        option.value = voice.id;
+        option.textContent = `${voice.name}${voice.ready ? "" : "（未绑定模型，需先训练）"}`;
+        select.appendChild(option);
+      }
+      if (previous && voices.some(v => v.id === previous)) {
+        select.value = previous;
+      } else {
+        const ready = voices.find(v => v.ready);
+        if (ready) select.value = ready.id;
+      }
+      updateCoverVoiceHint();
+    }
+
+    function updateCoverVoiceHint() {
+      const voice = voices.find(v => v.id === $("cover_voice_select").value);
+      const hint = $("cover_voice_hint");
+      if (!voice) {
+        hint.textContent = "还没有声线，请先到「模型训练」准备并训练。";
+        hint.className = "muted";
+        return;
+      }
+      hint.textContent = voice.ready
+        ? `已选声线：${voice.name}`
+        : `${voice.name} 还没绑定模型，需先到「模型训练」训练后才能翻唱。`;
+      hint.className = voice.ready ? "muted" : "bad";
     }
 
     async function loadSeparations(preferredSeparationId = "") {
@@ -867,6 +923,50 @@
         select.value = previous;
       }
       updateSeparationHint();
+      fillCoverSeparations();
+    }
+
+    function fillCoverSeparations() {
+      const select = $("cover_separation_select");
+      if (!select) return;
+      const previous = select.value;
+      select.innerHTML = "";
+      if (!separations.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "暂无分离结果（请先到「人声分离」处理）";
+        select.appendChild(option);
+      }
+      for (const item of separations) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = `${item.label || item.id}${item.ready ? "" : "（文件缺失）"}`;
+        select.appendChild(option);
+      }
+      const active = separationJobPath && separations.find(s => s.job_path === separationJobPath);
+      if (active) {
+        select.value = active.id;
+      } else if (previous && separations.some(s => s.id === previous)) {
+        select.value = previous;
+      } else {
+        const ready = separations.find(s => s.ready);
+        if (ready) select.value = ready.id;
+      }
+      updateCoverSeparationHint();
+    }
+
+    function updateCoverSeparationHint() {
+      const item = separations.find(s => s.id === $("cover_separation_select").value);
+      const hint = $("cover_separation_hint");
+      if (!item) {
+        hint.textContent = "还没有分离结果，请先到「人声分离」处理。";
+        hint.className = "muted";
+        return;
+      }
+      hint.textContent = item.ready
+        ? `已选分离：${item.song_path}（第 ${Number(item.start_seconds || 0).toFixed(0)}s 起，共 ${Number(item.duration_seconds || 30).toFixed(0)}s）`
+        : "所选分离结果文件缺失，请重新做人声分离。";
+      hint.className = item.ready ? "muted" : "bad";
     }
 
     let separationModels = [];
@@ -929,53 +1029,170 @@
       setProgress(`已选用分离历史：${item.label || item.id}`, false);
     }
 
-    async function loadCovers(preferredCoverId = "") {
-      const data = await api("/api/covers");
-      const previous = preferredCoverId || $("cover_select").value;
-      covers = data.covers;
-      const select = $("cover_select");
-      select.innerHTML = "";
-      if (!covers.length) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "暂无翻唱历史";
-        select.appendChild(option);
+    let historyLoaded = false;
+    function showPage(name) {
+      document.querySelectorAll(".page").forEach(el => {
+        el.classList.toggle("active", el.id === `page-${name}`);
+      });
+      document.querySelectorAll(".nav-item").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.page === name);
+      });
+      if (name === "history" && !historyLoaded) {
+        historyLoaded = true;
+        loadHistory();
       }
-      for (const item of covers) {
-        const option = document.createElement("option");
-        option.value = item.id;
-        option.textContent = `${item.label || item.id}${item.ready ? "" : "（文件缺失）"}`;
-        select.appendChild(option);
-      }
-      if (previous && covers.some(item => item.id === previous)) {
-        select.value = previous;
-      }
-      updateCoverHint();
     }
 
-    function updateCoverHint() {
-      const item = covers.find(entry => entry.id === $("cover_select").value);
-      $("cover_history_status").textContent = item
-        ? `${item.ready ? "可直接播放/复用" : "文件缺失"}：${item.audio_path}`
-        : "生成完成后会自动保存到这里，下次可直接播放或复用。";
-      $("cover_history_status").className = item && !item.ready ? "bad" : "muted";
+    function escapeHtml(text) {
+      return String(text == null ? "" : text)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
-    function useSelectedCover() {
-      const item = covers.find(entry => entry.id === $("cover_select").value);
-      if (!item) {
-        alert("暂无可用翻唱历史。");
+    async function loadHistory() {
+      const box = $("history_list");
+      box.className = "muted";
+      box.textContent = "正在加载历史翻唱...";
+      try {
+        const data = await api("/api/covers");
+        renderHistory(data.covers || []);
+      } catch (err) {
+        box.className = "bad";
+        box.textContent = `加载失败：${err.message}`;
+      }
+    }
+
+    function renderHistory(list) {
+      const box = $("history_list");
+      box.className = "";
+      if (!list.length) {
+        box.className = "muted";
+        box.textContent = "还没有翻唱成品，去「AI翻唱」页生成一首吧。";
         return;
       }
-      if (!item.ready) {
-        alert("这条历史翻唱音频文件不存在，请重新生成。");
-        return;
+      box.innerHTML = "";
+      for (const item of list) {
+        const wrap = document.createElement("div");
+        wrap.className = "history-item";
+        const badge = item.ready ? "" : ' <span class="bad">（文件缺失）</span>';
+        const when = item.updated_at ? `<span class="history-meta">${escapeHtml(item.updated_at)}</span>` : "";
+        wrap.innerHTML =
+          `<div class="history-head">`
+          + `<span class="history-title">${escapeHtml(item.label || item.id)}${badge}</span>`
+          + when
+          + `<span class="history-meta" style="margin-left:auto;">点击展开 ▾</span>`
+          + `</div>`
+          + `<div class="history-body" style="display:none;"></div>`;
+        const head = wrap.querySelector(".history-head");
+        const body = wrap.querySelector(".history-body");
+        const toggle = head.querySelector(".history-meta:last-child");
+        head.addEventListener("click", () => {
+          const open = body.style.display !== "none";
+          body.style.display = open ? "none" : "block";
+          toggle.textContent = open ? "点击展开 ▾" : "收起 ▴";
+          if (!open && !body.dataset.loaded) {
+            body.dataset.loaded = "1";
+            expandCoverDetail(item.id, body);
+          }
+        });
+        box.appendChild(wrap);
       }
-      renderResultAudio({ result_audio: item.audio_path });
-      $("job_path").value = item.job_path || $("job_path").value;
-      setProgress(`已选用历史翻唱：${item.label || item.id}`, false);
-      $("cover_history_status").textContent = `正在使用：${item.audio_path}`;
-      $("cover_history_status").className = "muted";
+    }
+
+    async function expandCoverDetail(id, bodyEl) {
+      bodyEl.className = "history-body muted";
+      bodyEl.textContent = "正在追溯素材 / 模型 / 人声分离...";
+      try {
+        const detail = await api(`/api/cover-detail?id=${encodeURIComponent(id)}`);
+        if (!detail.ok) {
+          bodyEl.className = "history-body bad";
+          bodyEl.textContent = detail.reason || "无法追溯这条翻唱。";
+          return;
+        }
+        renderCoverDetail(bodyEl, detail);
+      } catch (err) {
+        bodyEl.className = "history-body bad";
+        bodyEl.textContent = `追溯失败：${err.message}`;
+        bodyEl.dataset.loaded = "";
+      }
+    }
+
+    function audioBlock(label, path, ready) {
+      if (!path) return `<div class="muted">${label}：无法追溯</div>`;
+      const ok = ready !== false;
+      const player = ok
+        ? `<audio controls preload="none" src="/api/file?path=${encodeURIComponent(path)}" style="width:100%;margin-top:4px;"></audio>`
+        : `<span class="bad">（文件缺失）</span>`;
+      const dl = ok ? ` <a href="${downloadUrl(path)}" download>下载</a>` : "";
+      return `<div style="margin-top:6px;"><b>${label}</b>${dl}<div class="path">${escapeHtml(path)}</div>${player}</div>`;
+    }
+
+    function renderCoverDetail(bodyEl, d) {
+      bodyEl.className = "history-body";
+      const cover = d.cover || {};
+      const model = d.model || {};
+      const material = d.material || {};
+      const sep = d.separation || {};
+      const rvc = d.rvc || {};
+
+      let html = "";
+      // 翻唱成品
+      html += audioBlock("翻唱成品", cover.audio_path, cover.ready);
+
+      // 本次参数
+      const params = [];
+      if (rvc.pitch != null) params.push(`移调 ${rvc.pitch} 半音`);
+      if (rvc.index_rate != null) params.push(`index_rate ${rvc.index_rate}`);
+      if (rvc.protect != null) params.push(`protect ${rvc.protect}`);
+      if (rvc.f0_method) params.push(`f0 ${escapeHtml(rvc.f0_method)}`);
+      if (params.length) {
+        html += `<div style="margin-top:8px;"><b>本次翻唱参数</b><div class="muted">${params.join(" · ")}</div></div>`;
+      }
+
+      // 模型 / 零样本参考片段
+      if (model.zeroshot) {
+        html += `<div style="margin-top:10px;"><b>翻唱方式</b><div class="muted">零样本翻唱·免训练（Seed-VC）</div></div>`;
+        html += audioBlock("参考片段（目标声音）", model.reference_audio, model.reference_ready);
+      } else {
+        html += `<div style="margin-top:10px;"><b>模型</b>`;
+        if (model.name || model.model_name) {
+          const ready = model.ready ? "已就绪" : "未绑定 .pth/.index";
+          html += `<div class="muted">${escapeHtml(model.name || model.model_name)}（${ready}）</div>`;
+          if (model.model_path) html += `<div class="path">${escapeHtml(model.model_path)}</div>`;
+        } else {
+          html += `<div class="muted">无法追溯模型信息</div>`;
+        }
+        html += `</div>`;
+
+        // 素材
+        html += `<div style="margin-top:10px;"><b>训练素材</b>`;
+        if (material.traceable && material.sample_dir) {
+          html += `<div class="path">${escapeHtml(material.sample_dir)}</div>`;
+          if (material.sample_audio) {
+            html += audioBlock("试听一段", material.sample_audio, true);
+          }
+        } else {
+          html += `<div class="muted">无法追溯训练素材目录</div>`;
+        }
+        html += `</div>`;
+      }
+
+      // 人声分离
+      html += `<div style="margin-top:10px;"><b>人声分离</b>`;
+      if (sep.matched) {
+        const tag = sep.label ? escapeHtml(sep.label) : "已匹配";
+        const mdl = sep.model ? `（分离模型：${escapeHtml(sep.model)}）` : "";
+        html += `<div class="muted">${tag}${mdl}</div>`;
+      } else if (sep.vocals_path || sep.instrumental_path) {
+        html += `<div class="muted">未在分离库匹配到记录，但保留了当时的人声/伴奏。</div>`;
+      } else {
+        html += `<div class="muted">无法追溯人声分离</div>`;
+      }
+      html += audioBlock("人声", sep.vocals_path, sep.vocals_ready);
+      html += audioBlock("伴奏", sep.instrumental_path, sep.instrumental_ready);
+      html += `</div>`;
+
+      bodyEl.innerHTML = html;
     }
 
     function updateVoiceHint() {
@@ -1062,20 +1279,12 @@
         setProgress("正在准备生成试听声线...", true);
         auditionStatus("正在创建声线任务，请稍等。");
         status("正在创建声线试听任务。");
-        const engine = $("tts_engine").value;
         const payload = {
           character_name: $("voice_character_name").value,
           voice_description: $("voice_description").value,
-          tts_engine: engine,
+          tts_engine: "edge_tts",
           tts_voice: "zh-CN-YunxiNeural"
         };
-        if (engine === "cosyvoice") {
-          payload.reference_audio = $("reference_audio").value.trim();
-          payload.reference_text = $("reference_text").value.trim();
-          if (!payload.reference_audio || !payload.reference_text) {
-            throw new Error("CosyVoice 克隆需要参考录音和它对应的文字，请先填写。");
-          }
-        }
         const result = await post("/api/create-voice-job", payload);
         setJob(result.job_path);
         startProgressPolling("audition");
@@ -1092,20 +1301,13 @@
       }
     }
 
-    function toggleCosyvoiceFields() {
-      const isCosy = $("tts_engine").value === "cosyvoice";
-      $("cosyvoice_fields").style.display = isCosy ? "block" : "none";
-    }
-
     let materialMode = "a";
     function setMaterialMode(mode) {
       materialMode = (mode === "b" || mode === "c") ? mode : "a";
       $("material_a").style.display = materialMode === "a" ? "block" : "none";
       $("material_b").style.display = materialMode === "b" ? "block" : "none";
       $("material_c").style.display = materialMode === "c" ? "block" : "none";
-      $("mat_a_tab").classList.toggle("active", materialMode === "a");
-      $("mat_b_tab").classList.toggle("active", materialMode === "b");
-      $("mat_c_tab").classList.toggle("active", materialMode === "c");
+      $("material_mode_select").value = materialMode;
       if (materialMode === "c") loadRecSeparations().catch(() => {});
     }
 
@@ -1133,12 +1335,12 @@
     }
 
     function toggleEpochsAuto() {
-      const auto = $("train_epochs_auto").checked;
-      $("train_epochs").disabled = auto;
+      const auto = $("train_epochs_mode").value === "auto";
+      $("train_epochs").style.display = auto ? "none" : "";
     }
 
     function epochsPayload() {
-      return $("train_epochs_auto").checked ? "auto" : $("train_epochs").value;
+      return $("train_epochs_mode").value === "auto" ? "auto" : $("train_epochs").value;
     }
 
     function advancedTrainSettings() {
@@ -1306,13 +1508,14 @@
       const btn = $("auto_pitch_button");
       const info = $("auto_pitch_info");
       try {
-        const voice = voices.find(v => v.id === $("voice_select").value);
-        if (!voice) throw new Error("请先选择一个历史声线。");
-        if (!separationReady || !separationJobPath) throw new Error("请先完成第 3 步人声分离。");
+        const voice = voices.find(v => v.id === $("cover_voice_select").value);
+        if (!voice) throw new Error("请先选择声线模型。");
+        const sep = separations.find(s => s.id === $("cover_separation_select").value);
+        if (!sep || !sep.ready) throw new Error("请先选择可用的人声分离结果。");
         btn.disabled = true;
         info.className = "muted";
         info.textContent = "正在分析原唱和声线的音高（约需十几秒）...";
-        const params = new URLSearchParams({ voice_id: voice.id, separation_job_path: separationJobPath });
+        const params = new URLSearchParams({ voice_id: voice.id, separation_job_path: sep.job_path });
         const data = await api(`/api/suggest-pitch?${params.toString()}`);
         if (!data.ok) {
           info.className = "bad";
@@ -1332,33 +1535,73 @@
       }
     }
 
+    function toggleCoverEngine() {
+      const seedvc = $("cover_engine").value === "seedvc";
+      $("cover_engine_hint").style.display = seedvc ? "" : "none";
+      $("cover_voice_block").style.display = seedvc ? "none" : "";
+      $("cover_reference_block").style.display = seedvc ? "" : "none";
+    }
+
     function toggleCoverSmart() {
-      const on = $("cover_smart").checked;
+      const on = $("cover_smart").value === "smart";
       $("cover_smart_hint").style.display = on ? "" : "none";
+      const adv = $("cover_advanced");
+      adv.style.display = on ? "none" : "";
+      if (!on) adv.open = true;
     }
 
     async function makeCover() {
       try {
-        const voice = voices.find(v => v.id === $("voice_select").value);
-        if (!voice) throw new Error("请先选择一个历史声线。");
-        if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先训练。");
-        if (!separationReady || !separationJobPath) throw new Error("请先完成第 3 步人声分离，再生成翻唱音频。");
+        const sep = separations.find(s => s.id === $("cover_separation_select").value);
+        if (!sep) throw new Error("请先选择人声分离结果（到「人声分离」处理）。");
+        if (!sep.ready) throw new Error("所选人声分离结果文件缺失，请重新做人声分离。");
+        const smart = $("cover_smart").value === "smart";
+
+        if ($("cover_engine").value === "seedvc") {
+          const reference = $("cover_reference").value.trim();
+          if (!reference) throw new Error("请先选择一段参考音频（目标声音）。");
+          const refName = reference.split(/[\\/]/).pop().replace(/\.[^.]+$/, "") || "零样本";
+          attachProgressTo("cover_button");
+          setProgress("正在创建零样本翻唱任务...", true);
+          const result = await post("/api/create-zeroshot-cover-job", {
+            character_name: refName,
+            reference_audio: reference,
+            song_path: sep.song_path,
+            start_seconds: sep.start_seconds,
+            duration_seconds: sep.duration_seconds,
+            separation_job_path: sep.job_path,
+            dry_run: false,
+            pitch: $("cover_pitch").value,
+            deess_strength: $("cover_deess_strength").value,
+            smart: smart
+          });
+          setJob(result.job_path);
+          startProgressPolling("cover");
+          await runJob(true);
+          return;
+        }
+
+        const voice = voices.find(v => v.id === $("cover_voice_select").value);
+        if (!voice) throw new Error("请先选择声线模型（到「模型训练」准备）。");
+        if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先到「模型训练」训练。");
+        attachProgressTo("cover_button");
+        setProgress("正在创建翻唱任务...", true);
         const result = await post("/api/create-audio-cover-job", {
           character_name: voice.name,
           voice_description: voice.description,
           voice_id: voice.id,
-          song_path: $("song_path").value,
-          start_seconds: $("start_seconds").value,
-          duration_seconds: $("duration_seconds").value,
-          separation_job_path: separationJobPath,
-          dry_run: $("dry_run").checked,
+          song_path: sep.song_path,
+          start_seconds: sep.start_seconds,
+          duration_seconds: sep.duration_seconds,
+          separation_job_path: sep.job_path,
+          dry_run: false,
           pitch: $("cover_pitch").value,
           index_rate: $("cover_index_rate").value,
           protect: $("cover_protect").value,
           clean_audio: $("cover_clean_audio").checked,
           clean_strength: $("cover_clean_strength").value,
           deess_strength: $("cover_deess_strength").value,
-          smart: $("cover_smart").checked,
+          smart: smart,
           formant_shifting: $("cover_formant_shifting").checked,
           formant_qfrency: $("cover_formant_qfrency").value,
           formant_timbre: $("cover_formant_timbre").value
@@ -1458,10 +1701,9 @@
     async function runJob(noResumeDefault) {
       const data = await post("/api/run-job", {
         job_path: $("job_path").value,
-        dry_run: $("dry_run").checked,
-        no_resume: noResumeDefault || $("no_resume").checked
+        dry_run: false,
+        no_resume: noResumeDefault
       });
-      $("runner").textContent = data.message;
       status(data.message);
       setTimeout(refreshStatus, 800);
     }
@@ -1469,12 +1711,8 @@
     async function refreshStatus() {
       if (!$("job_path").value) return;
       const data = await api(`/api/status?job_path=${encodeURIComponent($("job_path").value)}`);
-      $("runner").textContent = summarizeRunner(data);
-      $("state").textContent = JSON.stringify(data.state, null, 2);
-      $("artifacts").textContent = summarizeArtifacts(data.artifacts);
       renderResultAudio(data.artifacts);
       renderSavedPaths(data.artifacts);
-      $("logs").textContent = (data.logs || []).map(l => `== ${l.name} ==\n${l.text}`).join("\n\n");
       if (data.runner && data.runner.running) {
         status("任务正在运行，请等待。");
         const label = activeTask ? activeTaskLabel(activeTask) : "任务";
@@ -1519,7 +1757,7 @@
             loadSeparations().catch(() => {});
           }
           if (activeTask === "cover") {
-            loadCovers().catch(() => {});
+            if (historyLoaded) loadHistory().catch(() => {});
             setProgress("翻唱音频已完成并保存到历史，可以直接播放。", false);
           }
           stopProgressPolling();
@@ -1644,8 +1882,8 @@
 
     $("voice_select").addEventListener("change", updateVoiceHint);
     $("separation_select").addEventListener("change", updateSeparationHint);
-    $("cover_select").addEventListener("change", updateCoverHint);
-    $("job_select").addEventListener("change", () => setJob($("job_select").value));
+    $("cover_voice_select").addEventListener("change", updateCoverVoiceHint);
+    $("cover_separation_select").addEventListener("change", updateCoverSeparationHint);
     $("job_path").addEventListener("change", refreshStatus);
     $("song_path").addEventListener("input", () => {
       invalidateSeparation();
@@ -1671,10 +1909,16 @@
       status(message, true);
       auditionStatus(message, true);
     });
+    document.querySelectorAll(".nav-item").forEach(btn => {
+      btn.addEventListener("click", () => showPage(btn.dataset.page));
+    });
+    showPage("material");
     setMaterialMode("a");
+    toggleCoverSmart();
+    toggleCoverEngine();
     toggleEpochsAuto();
     loadDefaults()
-      .then(() => Promise.all([loadRuntime(), loadJobs(), loadVoices(), loadSeparations(), loadSeparationModels(), loadCovers(), refreshStatus()]))
+      .then(() => Promise.all([loadVoices(), loadSeparations(), loadSeparationModels(), refreshStatus()]))
       .catch(err => {
         status(err.message, true);
         auditionStatus(err.message, true);

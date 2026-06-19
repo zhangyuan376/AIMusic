@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import codecs
+import os
 import subprocess
 from pathlib import Path
 from typing import Sequence
@@ -15,6 +16,7 @@ def run_command(
     cwd: Path,
     log_path: Path,
     dry_run: bool = False,
+    env: dict[str, str] | None = None,
 ) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     command_text = " ".join(f'"{part}"' if " " in part else part for part in command)
@@ -38,6 +40,7 @@ def run_command(
             cwd=str(cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            env=({**os.environ, **env} if env else None),
         )
         decoder = codecs.getincrementaldecoder("utf-8")("replace")
         assert process.stdout is not None
