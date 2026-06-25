@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
 from singing_app.config import RUNTIME
+from singing_app.adapters.downloader import MediaDownloader
 from singing_app.harness.runner import HarnessRunner
 from singing_app.pitch import suggest_formant, suggest_pitch_shift
 from singing_app.runtime_check import checks_as_dicts
@@ -133,6 +134,9 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                     kind=query.get("kind", ["any"])[0],
                     initial=query.get("initial", [""])[0],
                 ))
+            elif parsed.path == "/api/read-lyrics":
+                path = parse_qs(parsed.query).get("path", [""])[0]
+                self._send_json(read_lyrics_file(path))
             elif parsed.path.startswith("/api/"):
                 self._send_json({"error": f"Unknown API endpoint: {parsed.path}"}, status=HTTPStatus.NOT_FOUND)
             else:
@@ -148,6 +152,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 self._send_json({"job_path": str(write_audio_cover_job(payload))})
             elif parsed.path == "/api/create-zeroshot-cover-job":
                 self._send_json({"job_path": str(write_zeroshot_cover_job(payload))})
+            elif parsed.path == "/api/create-diffsinger-cover-job":
+                self._send_json({"job_path": str(write_diffsinger_cover_job(payload))})
             elif parsed.path == "/api/create-separation-job":
                 self._send_json({"job_path": str(write_separation_job(payload))})
             elif parsed.path == "/api/create-voice-job":
@@ -164,6 +170,8 @@ class SingingWebHandler(SimpleHTTPRequestHandler):
                 self._send_json({"voice": rebind_checkpoint(payload)})
             elif parsed.path == "/api/save-voice":
                 self._send_json({"voice": save_voice_selection(payload)})
+            elif parsed.path == "/api/download-media":
+                self._send_json(download_media(payload))
             elif parsed.path == "/api/run-job":
                 job_path = Path(str(payload.get("job_path", "")))
                 if not job_path.exists():
@@ -523,9 +531,16 @@ def auto_save_separation_result(job_path: Path) -> str:
         start_seconds = float(song.get("start_seconds", 0))
         duration_seconds = float(song.get("duration_seconds", 30))
         record_id = _slugify(f"{song_path.stem}_{start_seconds:.2f}_{duration_seconds:.2f}")
+        sep_settings = job.get("settings", {}).get("separation", {})
+        extras = []
+        if sep_settings.get("remove_harmony"):
+            extras.append("去和声")
+        if sep_settings.get("denoise"):
+            extras.append("降噪")
+        suffix = f"（{'+'.join(extras)}）" if extras else ""
         record = {
             "id": record_id,
-            "label": f"{song_path.stem} [{start_seconds:.2f}s - {start_seconds + duration_seconds:.2f}s]",
+            "label": f"{song_path.stem} [{start_seconds:.2f}s - {start_seconds + duration_seconds:.2f}s]{suffix}",
             "song_path": str(song_path),
             "start_seconds": start_seconds,
             "duration_seconds": duration_seconds,
@@ -547,8 +562,11 @@ def load_cover_library(create: bool = True) -> list[dict[str, Any]]:
             _write_json(COVER_LIBRARY_PATH, {"covers": []})
         return []
     data = _read_json(COVER_LIBRARY_PATH)
+    # Tolerate both the canonical {"covers": [...]} shape and a bare [...] list
+    # (older/hand-edited files), so a save never crashes on a legacy file.
+    raw = data.get("covers", []) if isinstance(data, dict) else data
     covers = []
-    for item in data.get("covers", []):
+    for item in raw:
         item = dict(item)
         item["ready"] = Path(str(item.get("audio_path", ""))).is_file()
         covers.append(item)
@@ -583,8 +601,12 @@ def cover_detail(cover_id: str) -> dict[str, Any]:
     rvc = (job.get("settings", {}) or {}).get("rvc", {}) or {}
 
     is_zeroshot = bool(cover.get("zeroshot")) or "convert_vocals_zeroshot" in list(job.get("steps", []))
+    is_diffsinger = bool(cover.get("diffsinger")) or "synthesize_diffsinger" in list(job.get("steps", []))
     reference_audio = str(
         cover.get("reference_audio") or (inputs.get("reference", {}) or {}).get("audio", "")
+    ).strip()
+    lyrics = str(
+        cover.get("lyrics") or (inputs.get("diffsinger", {}) or {}).get("lyrics", "")
     ).strip()
 
     voice_id = str(cover.get("voice_id") or job_voice.get("voice_id") or "").strip()
@@ -605,6 +627,9 @@ def cover_detail(cover_id: str) -> dict[str, Any]:
             "model_name": str(job_voice.get("model_name", "")),
             "model_path": str(job_voice.get("model_path", "")),
         }
+        if is_diffsinger:
+            model["diffsinger"] = True
+            model["lyrics"] = lyrics
         sample_dir = ""
         training_job_path = ""
         try:
@@ -678,12 +703,15 @@ def auto_save_cover_result(job_path: Path) -> str:
         steps = list(job.get("steps", []))
         rvc_steps = ["check_runtime", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "export_result"]
         zeroshot_steps = ["check_runtime", "use_separated_audio", "convert_vocals_zeroshot", "mix_audio", "export_result"]
-        if steps not in (rvc_steps, zeroshot_steps):
+        diffsinger_steps = ["check_runtime", "import_voice_model", "use_separated_audio", "synthesize_diffsinger", "convert_vocals", "mix_audio", "export_result"]
+        if steps not in (rvc_steps, zeroshot_steps, diffsinger_steps):
             return ""
         is_zeroshot = steps == zeroshot_steps
+        is_diffsinger = steps == diffsinger_steps
         song = job.get("inputs", {}).get("song", {})
         voice = job.get("inputs", {}).get("voice", {})
         reference_audio = str(job.get("inputs", {}).get("reference", {}).get("audio", "")).strip()
+        lyrics = str(job.get("inputs", {}).get("diffsinger", {}).get("lyrics", "")).strip()
         artifacts = job_status(job_path, {"running": False, "current_job": "", "messages": []}).get("artifacts") or {}
         audio_path = _required_existing_file(str(artifacts.get("result_audio") or artifacts.get("final_mix") or ""), "cover audio")
         song_path = Path(str(song.get("path", "")))
@@ -699,6 +727,8 @@ def auto_save_cover_result(job_path: Path) -> str:
             "song_path": str(song_path),
             "voice_id": voice_id,
             "zeroshot": is_zeroshot,
+            "diffsinger": is_diffsinger,
+            "lyrics": lyrics,
             "reference_audio": reference_audio,
             "start_seconds": start_seconds,
             "duration_seconds": duration_seconds,
@@ -793,6 +823,7 @@ def job_status(job_path: Path, runner_snapshot: dict[str, Any]) -> dict[str, Any
         return status | {"exists": False, "state": None, "artifacts": None, "logs": []}
     data = _read_json(job_path)
     output_dir = Path(data["output_dir"])
+    ds_seeds = (((data.get("settings") or {}).get("diffsinger") or {}).get("seeds")) or []
     return status | {
         "exists": True,
         "output_dir": str(output_dir),
@@ -800,7 +831,8 @@ def job_status(job_path: Path, runner_snapshot: dict[str, Any]) -> dict[str, Any
         "artifacts": _read_json_if_exists(output_dir / "artifacts.json"),
         "logs": read_logs(output_dir / "logs"),
         "progress": _training_progress(output_dir / "logs")
-        or _separation_progress(output_dir / "logs"),
+        or _separation_progress(output_dir / "logs")
+        or _diffsinger_progress(output_dir / "logs", len(ds_seeds)),
     }
 
 
@@ -886,6 +918,41 @@ def _separation_progress(logs_dir: Path) -> dict[str, Any] | None:
     }
 
 
+def _diffsinger_progress(logs_dir: Path, total_seeds: int) -> dict[str, Any] | None:
+    """Surface sub-step progress for the long ``synthesize_diffsinger`` step.
+
+    That step is opaque to the runner (one step running several subprocesses:
+    g2p -> RMVPE f0 -> SOFA align -> N seed synths -> best-of-N ASR), so without
+    this the UI shows only a spinner with no bar. We parse the streamed synth log
+    for phase markers and the per-seed ``seed=N ->`` lines to produce a moving
+    percent. Returns None unless the synth step is the one currently running, so
+    the later RVC/mix steps keep showing their own text.
+    """
+    log_path = logs_dir / "synthesize_diffsinger.log"
+    if not log_path.exists():
+        return None
+    state = _read_json_if_exists(logs_dir.parent / "state.json") or {}
+    if (state.get("synthesize_diffsinger") or {}).get("status") != "running":
+        return None
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    total = max(1, int(total_seeds or 1))
+    done_seeds = len(set(re.findall(r"seed=(\d+)\s*->", text)))
+    if "g2p chars=" not in text:
+        label, percent = "准备歌词中", 3
+    elif "f0 frames=" not in text:
+        label, percent = "分析原唱音高中", 8
+    elif "transcriptions.csv" not in text:
+        label, percent = "对齐歌词与节奏中", 18
+    elif done_seeds < total:
+        percent = 25 + round(done_seeds / total * 63)
+        label = f"合成歌声中（第 {done_seeds + 1}/{total} 个候选）"
+    elif total > 1:
+        label, percent = "挑选最清晰的发音中", 92
+    else:
+        label, percent = "整理人声中", 92
+    return {"phase": "diffsinger", "percent": min(99, percent), "text": label, "done": False}
+
+
 def read_logs(logs_dir: Path) -> list[dict[str, str]]:
     if not logs_dir.exists():
         return []
@@ -912,6 +979,97 @@ def open_output_folder(job_path: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     _open_path(output_dir)
     return {"opened": str(output_dir)}
+
+
+def _normalize_media_url(url: str) -> str:
+    """Rewrite Douyin share/search URLs to the canonical video form.
+
+    Pasting a video straight from the browser yields a jingxuan/search URL like
+    ``douyin.com/jingxuan/search/...?...&modal_id=<id>`` which yt-dlp rejects as
+    unsupported; the real video id lives in the ``modal_id`` query param. Convert
+    it to ``douyin.com/video/<id>`` (which the Douyin extractor handles) so users
+    don't have to hand-edit the link.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return url
+    if "douyin.com" in parsed.netloc and "/video/" not in parsed.path:
+        modal = parse_qs(parsed.query).get("modal_id", [""])[0]
+        if modal.isdigit():
+            return f"https://www.douyin.com/video/{modal}"
+    return url
+
+
+def download_media(payload: dict[str, Any]) -> dict[str, Any]:
+    """Download audio (and optionally video) from a URL via yt-dlp.
+
+    Returns absolute paths plus /api/file URLs so the page can preview the audio
+    right away and the saved file can be reused as cover source or a zero-shot
+    reference clip.
+    """
+    url = str(payload.get("url", "")).strip()
+    if not url:
+        raise ValueError("请先粘贴一个视频链接（抖音 / B站 / YouTube 等）。")
+    url = _normalize_media_url(url)
+    keep_video = bool(payload.get("keep_video", True))
+
+    downloader = MediaDownloader()
+    if not downloader.available():
+        raise RuntimeError(
+            "未找到 yt-dlp，无法下载。请先安装：在项目 .venv 里执行 pip install yt-dlp。"
+        )
+
+    logs_dir = RUNTIME.downloads_root / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_path = logs_dir / "download.log"
+    result = downloader.download(
+        url,
+        out_dir=RUNTIME.downloads_root,
+        log_path=log_path,
+        keep_video=keep_video,
+    )
+
+    audio_path = str(result.get("audio_path") or "")
+    video_path = result.get("video_path")
+    return {
+        "title": result.get("title"),
+        "duration": result.get("duration"),
+        "audio_path": audio_path,
+        "audio_url": f"/api/file?path={quote(audio_path)}" if audio_path else "",
+        "video_path": video_path,
+        "video_url": f"/api/file?path={quote(str(video_path))}" if video_path else "",
+    }
+
+
+def read_lyrics_file(path: str) -> dict[str, str]:
+    """Read a user-picked lyrics file (.txt/.lrc) into plain text for the lyrics
+    box. LRC timestamp tags like ``[00:12.34]`` and metadata tags like ``[ti:..]``
+    are stripped so only the words remain; the synth's g2p keeps CJK chars only,
+    so this is purely to show clean text in the UI."""
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"歌词文件不存在：{path}")
+    if p.stat().st_size > 1_000_000:
+        raise ValueError("歌词文件过大，请确认选择的是文本/歌词文件。")
+    raw = p.read_text(encoding="utf-8", errors="replace")
+    # Drop bracketed LRC tags (timestamps + metadata), then drop production
+    # credit lines like ``词：吴青峰`` / ``编曲助理：张羣`` / ``PGM：宋禹`` that many
+    # LRCs put as plain text after a timestamp. Heuristic: a short label (<=8
+    # chars, no spaces) immediately followed by a colon is a credit, not a lyric
+    # — real lyric lines almost never start ``label：``.
+    credit = re.compile(r"^[一-鿿A-Za-z]{1,8}[：:]")
+    lines = []
+    for line in raw.splitlines():
+        stripped = re.sub(r"\[[^\]]*\]", "", line).strip()
+        if stripped and not credit.match(stripped):
+            lines.append(stripped)
+    # Drop a leading ``歌名 - 歌手`` title line (LRCs commonly put it first).
+    # Only the first line, and only when it has the ` - ` artist separator, so
+    # genuine lyric lines further down are never touched.
+    if lines and " - " in lines[0]:
+        lines = lines[1:]
+    return {"text": "\n".join(lines)}
 
 
 def pick_file(kind: str = "any", initial: str = "") -> dict[str, str]:
@@ -987,6 +1145,8 @@ def _file_dialog_title(kind: str) -> str:
         return "选择音乐或视频文件"
     if kind == "job":
         return "选择 Job JSON"
+    if kind == "lyrics":
+        return "选择歌词文件"
     return "选择文件"
 
 
@@ -1006,6 +1166,8 @@ def _file_dialog_types(kind: str) -> list[tuple[str, str]]:
         ]
     if kind == "job":
         return [("Job JSON", "*.json"), ("All files", "*.*")]
+    if kind == "lyrics":
+        return [("Lyrics files", "*.txt *.lrc *.text"), ("All files", "*.*")]
     return [("All files", "*.*")]
 
 
@@ -1049,7 +1211,7 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
         "output_dir": str(project_dir),
         "steps": ["check_runtime", "import_voice_model", "use_separated_audio", "convert_vocals", "mix_audio", "export_result"],
         "inputs": {
-            "voice": {"model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path), "voice_id": voice_id},
+            "voice": {"name": character_name, "model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path), "voice_id": voice_id},
             "song": {
                 "path": str(song_path),
                 "start_seconds": float(payload.get("start_seconds", 0)),
@@ -1061,8 +1223,8 @@ def write_audio_cover_job(payload: dict[str, Any]) -> Path:
         "settings": {
             "rvc": rvc,
             "mix": {
-                "instrumental_volume": 0.88,
-                "vocal_volume": 1.12,
+                "instrumental_volume": 0.72,
+                "vocal_volume": 1.4,
                 "deess_strength": float(payload.get("deess_strength", 0.0) or 0.0),
             },
         },
@@ -1120,7 +1282,7 @@ def write_zeroshot_cover_job(payload: dict[str, Any]) -> Path:
         "output_dir": str(project_dir),
         "steps": ["check_runtime", "use_separated_audio", "convert_vocals_zeroshot", "mix_audio", "export_result"],
         "inputs": {
-            "reference": {"audio": str(reference_audio)},
+            "reference": {"name": character_name, "audio": str(reference_audio)},
             "song": {
                 "path": str(song_path),
                 "start_seconds": float(payload.get("start_seconds", 0)),
@@ -1136,8 +1298,8 @@ def write_zeroshot_cover_job(payload: dict[str, Any]) -> Path:
                 "inference_cfg_rate": float(payload.get("inference_cfg_rate", 0.7) or 0.7),
             },
             "mix": {
-                "instrumental_volume": 0.88,
-                "vocal_volume": 1.12,
+                "instrumental_volume": 0.72,
+                "vocal_volume": 1.4,
                 "deess_strength": float(payload.get("deess_strength", 0.0) or 0.0),
             },
         },
@@ -1145,16 +1307,113 @@ def write_zeroshot_cover_job(payload: dict[str, Any]) -> Path:
     return job_path
 
 
-def _smart_cover_rvc(payload: dict[str, Any], voice_id: str) -> dict[str, Any]:
+def write_diffsinger_cover_job(payload: dict[str, Any]) -> Path:
+    """Build a lyric-driven cover job: re-sing the song with corrected phonemes.
+
+    Hybrid route — same trained RVC voice as write_audio_cover_job, but a
+    synthesize_diffsinger step is inserted before convert_vocals. DiffSinger
+    re-sings the separated vocals with the user's lyrics (keeping the original
+    melody/rhythm via the source f0 + forced alignment), producing a clean vocal
+    whose pronunciation is exactly the lyrics; that clean vocal overwrites the
+    "vocals" artifact so the downstream RVC + mix + export stages run unchanged.
+    """
+    character_name = _required_text(payload, "character_name")
+    song_path = _required_path(payload, "song_path")
+    voice_id = _required_text(payload, "voice_id")
+    lyrics = str(payload.get("lyrics", "")).strip()
+    if not lyrics:
+        raise ValueError("请填写这首歌的歌词，逐字纠正发音翻唱需要歌词来重唱。")
+    voice = find_voice(voice_id)
+    if not voice.get("model_path") or not voice.get("index_path"):
+        raise ValueError("这个历史声线还没有可用模型，请先训练后再生成翻唱音频。")
+    model_path = _required_existing_file(voice["model_path"], "voice model")
+    index_path = _required_existing_file(voice["index_path"], "voice index")
+    separation = load_separation_artifacts(
+        str(payload.get("separation_job_path", "")).strip(),
+        validate=not bool(payload.get("dry_run", False)),
+    )
+    if not separation:
+        raise ValueError("请先完成人声分离，或从分离历史选择一个结果。")
+
+    character_id = _slugify(character_name)
+    job_id = f"{character_id}_cover_diffsinger"
+    project_dir = RUNTIME.projects_root / job_id
+    job_path = _job_path(job_id)
+    rvc = {
+        "pitch": int(payload.get("pitch", 0) or 0),
+        "index_rate": float(payload.get("index_rate", 0.7) or 0.7),
+        "protect": float(payload.get("protect", 0.45) or 0.45),
+        "clean_audio": bool(payload.get("clean_audio", False)),
+        "clean_strength": float(payload.get("clean_strength", 0.3) or 0.3),
+        "formant_shifting": bool(payload.get("formant_shifting", False)),
+        "formant_qfrency": float(payload.get("formant_qfrency", 1.0) or 1.0),
+        "formant_timbre": float(payload.get("formant_timbre", 1.0) or 1.0),
+    }
+    if bool(payload.get("smart", True)):
+        rvc.update(_smart_cover_rvc(payload, voice_id, favor_timbre=True))
+
+    seeds_raw = payload.get("seeds")
+    if isinstance(seeds_raw, list) and seeds_raw:
+        seeds = [int(s) for s in seeds_raw]
+    else:
+        # best-of-N: more seeds = clearer pronunciation but slower. Each seed
+        # synthesizes the WHOLE song (~minutes on CPU), so 10 over a full track
+        # is impractical; 3 keeps a safety margin without a 30+ min wait. Memory
+        # notes seed variance is small except on edge-of-range clips.
+        n = int(payload.get("seed_count", 3) or 3)
+        seeds = list(range(1, max(1, n) + 1))
+
+    _write_json(job_path, {
+        "job_id": job_id,
+        "output_dir": str(project_dir),
+        "steps": ["check_runtime", "import_voice_model", "use_separated_audio", "synthesize_diffsinger", "convert_vocals", "mix_audio", "export_result"],
+        "inputs": {
+            "voice": {"name": character_name, "model_name": model_path.stem, "model_path": str(model_path), "index_path": str(index_path), "voice_id": voice_id},
+            "diffsinger": {"lyrics": lyrics},
+            "song": {
+                "path": str(song_path),
+                "start_seconds": float(payload.get("start_seconds", 0)),
+                "duration_seconds": float(payload.get("duration_seconds", 30)),
+                "vocals_path": separation["vocals"],
+                "instrumental_path": separation["instrumental"],
+            },
+        },
+        "settings": {
+            "diffsinger": {
+                "seeds": seeds,
+                "depth": float(payload.get("depth", 0.3) or 0.3),
+                "steps": int(payload.get("synth_steps", 100) or 100),
+                "velocity": float(payload.get("velocity", 0.85) or 0.85),
+            },
+            "rvc": rvc,
+            "mix": {
+                "instrumental_volume": 0.72,
+                "vocal_volume": 1.4,
+                "deess_strength": float(payload.get("deess_strength", 0.0) or 0.0),
+            },
+        },
+    })
+    return job_path
+
+
+def _smart_cover_rvc(
+    payload: dict[str, Any], voice_id: str, favor_timbre: bool = False
+) -> dict[str, Any]:
     """Auto-derive transpose + formant for a cover from measured pitch.
 
     Reuses the same F0 comparison as the manual "auto-detect" button, then maps
     the octave-rounded transpose to a conservative cross-gender formant nudge.
     Any failure (e.g. separation not ready in dry-run) degrades to no transpose
-    rather than blocking job creation. index_rate/protect favor articulation
+    rather than blocking job creation.
+
+    Two param profiles. The default (plain RVC route) favors articulation
     clarity (lower index_rate, max protect) so converted lyrics stay legible —
-    the common complaint from outsiders is mushy 咬字, not insufficient timbre
-    match, and these are knobs they should not have to reason about.
+    on that route RVC is the ONLY thing shaping 咬字, and the common complaint is
+    mushy pronunciation, not insufficient timbre. ``favor_timbre`` flips this for
+    the DiffSinger route: there the clean vocal already has correct 咬字 from
+    synthesis, and the "source" RVC protects is the Qixuan voicebank, so high
+    protect would leak Qixuan's timbre instead of the user's — so we raise
+    index_rate and drop protect to pull hard toward the trained voice.
     """
     pitch = int(payload.get("pitch", 0) or 0)
     try:
@@ -1163,7 +1422,10 @@ def _smart_cover_rvc(payload: dict[str, Any], voice_id: str) -> dict[str, Any]:
             pitch = int(suggestion["recommended"])
     except Exception:
         pass
-    out: dict[str, Any] = {"pitch": pitch, "index_rate": 0.55, "protect": 0.5}
+    if favor_timbre:
+        out: dict[str, Any] = {"pitch": pitch, "index_rate": 0.7, "protect": 0.25}
+    else:
+        out = {"pitch": pitch, "index_rate": 0.55, "protect": 0.5}
     out.update(suggest_formant(pitch))
     return out
 
@@ -1186,6 +1448,16 @@ def write_separation_job(payload: dict[str, Any]) -> Path:
             f"分离模型「{model['label']}」尚未安装，无法使用。"
             "请先安装 audio-separator 包并下载对应权重，或改用 Demucs 模型。"
         )
+    remove_harmony = bool(payload.get("remove_harmony", False))
+    denoise = bool(payload.get("denoise", False))
+    if remove_harmony or denoise:
+        from singing_app.adapters.audio_separator import AudioSeparatorAdapter
+
+        if not AudioSeparatorAdapter().available():
+            raise ValueError(
+                "「去和声」「降噪去混响」需要 audio-separator，当前环境未安装。"
+                "请先安装后再开启，或取消勾选。"
+            )
     _write_json(job_path, {
         "job_id": job_id,
         "output_dir": str(project_dir),
@@ -1197,7 +1469,13 @@ def write_separation_job(payload: dict[str, Any]) -> Path:
                 "duration_seconds": float(payload.get("duration_seconds", 30)),
             },
         },
-        "settings": {"separation": {"model": model_id}},
+        "settings": {
+            "separation": {
+                "model": model_id,
+                "remove_harmony": remove_harmony,
+                "denoise": denoise,
+            }
+        },
     })
     return job_path
 

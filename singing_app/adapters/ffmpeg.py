@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 from singing_app.adapters.command import run_command
@@ -9,6 +11,23 @@ from singing_app.config import RUNTIME
 class FfmpegAdapter:
     def __init__(self, ffmpeg_path: Path = RUNTIME.ffmpeg) -> None:
         self.ffmpeg_path = ffmpeg_path
+
+    def _measure_mean_volume(self, path: Path) -> float | None:
+        """Return the mean volume (dBFS) of an audio file via volumedetect.
+
+        Used to normalize stems to a common loudness before mixing. Returns None
+        if measurement fails so the caller can fall back to plain gains.
+        """
+        try:
+            proc = subprocess.run(
+                [str(self.ffmpeg_path), "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return None
+        match = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", proc.stderr)
+        return float(match.group(1)) if match else None
 
     def trim_audio(
         self,
@@ -120,6 +139,46 @@ class FfmpegAdapter:
             dry_run=dry_run,
         )
 
+    def combine_stems(
+        self,
+        first_path: Path,
+        second_path: Path,
+        output_path: Path,
+        log_path: Path,
+        dry_run: bool = False,
+    ) -> None:
+        """Sum two stems at their original levels (no loudness normalization).
+
+        Used to fold separated backing harmony back into the instrumental so the
+        accompaniment stays full while only the lead is sent to RVC. Unlike
+        ``mix_audio`` (which re-normalizes each input to a reference loudness for
+        a vocal-forward balance), this keeps the relative levels intact — the two
+        stems came from the same source, so a straight sum reconstructs it.
+        """
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        run_command(
+            [
+                str(self.ffmpeg_path),
+                "-y",
+                "-i",
+                str(first_path),
+                "-i",
+                str(second_path),
+                "-filter_complex",
+                "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95[out]",
+                "-map",
+                "[out]",
+                "-ar",
+                "44100",
+                "-ac",
+                "2",
+                str(output_path),
+            ],
+            cwd=RUNTIME.app_root,
+            log_path=log_path,
+            dry_run=dry_run,
+        )
+
     def mix_audio(
         self,
         instrumental_path: Path,
@@ -142,10 +201,31 @@ class FfmpegAdapter:
         if deess_strength > 0:
             intensity = max(0.0, min(1.0, deess_strength))
             deess = f"deesser=i={intensity}:f=0.25,"
+        # RVC-converted vocals come out far quieter than the instrumental (often
+        # ~15 dB lower in mean loudness), and that level varies per run, so a
+        # fixed volume= multiplier can never reliably bring the vocal forward.
+        # First normalize each stem to a common mean reference, THEN apply the
+        # caller's volume= as a relative balance trim. This makes the vocal land
+        # at a predictable level above the instrumental regardless of how quiet
+        # RVC's output was. If measurement fails, the gain is 0 (no-op) and we
+        # degrade to the plain-multiplier behavior.
+        reference_mean_db = -20.0
+        inst_norm_db = 0.0
+        vocal_norm_db = 0.0
+        if not dry_run:
+            inst_mean = self._measure_mean_volume(instrumental_path)
+            vocal_mean = self._measure_mean_volume(vocal_path)
+            if inst_mean is not None:
+                inst_norm_db = reference_mean_db - inst_mean
+            if vocal_mean is not None:
+                vocal_norm_db = reference_mean_db - vocal_mean
+        # normalize=0 honors the volume= filters as-is; the trailing alimiter
+        # catches the peaks that the normalized+boosted vocal now exceeds. lowpass
+        # at 16k (not 12k) keeps the vocal's air/brilliance so it isn't muffled.
         filter_graph = (
-            f"[0:a]volume={instrumental_volume}[a0];"
-            f"[1:a]volume={vocal_volume},{deess}highpass=f=80,lowpass=f=12000[a1];"
-            "[a0][a1]amix=inputs=2:duration=longest,alimiter=limit=0.95[out]"
+            f"[0:a]volume={inst_norm_db}dB,volume={instrumental_volume}[a0];"
+            f"[1:a]volume={vocal_norm_db}dB,volume={vocal_volume},{deess}highpass=f=80,lowpass=f=16000[a1];"
+            "[a0][a1]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95[out]"
         )
         run_command(
             [

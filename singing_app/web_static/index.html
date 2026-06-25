@@ -89,6 +89,7 @@
       <button type="button" class="nav-item" data-page="train">模型训练</button>
       <button type="button" class="nav-item" data-page="separation">人声分离</button>
       <button type="button" class="nav-item" data-page="cover">AI翻唱</button>
+      <button type="button" class="nav-item" data-page="download">链接下载</button>
       <button type="button" class="nav-item" data-page="history">历史记录</button>
     </nav>
 
@@ -144,12 +145,14 @@
         <div class="muted">复用第 3 步「人声分离」得到的干声作为训练素材：先把目标歌手的多段歌做人声分离，再到这里多选拿去训练。这些音轨已是纯人声，不会再次降噪。</div>
         <label>角色名</label>
         <input id="sepmat_character_name" placeholder="例如 我的声线">
-        <label>选择分离人声（可多选，建议总时长尽量长）</label>
+        <label>选择分离人声（可添加多条，建议总时长尽量长）</label>
         <div class="path-picker">
-          <select id="sepmat_select" multiple size="6" style="flex:1;min-width:0;"></select>
+          <select id="sepmat_select" style="flex:1;min-width:0;"></select>
+          <button type="button" onclick="addSepmatSelection()">添加</button>
           <button type="button" onclick="loadRecSeparations()">刷新历史</button>
         </div>
-        <div class="muted">按住 Ctrl/Cmd 可多选。列表来自第 3 步的分离历史；文件缺失的条目不可选。</div>
+        <div id="sepmat_chosen" class="muted" style="margin-top:8px;">尚未添加分离人声。</div>
+        <div class="muted">从下拉里选一条「添加」到上方列表，可添加多条；列表来自第 3 步的分离历史，文件缺失的条目不可选。</div>
         <div style="margin-top:10px;"><label>音高增强（让说话声更会唱高音）</label>
           <select id="sepmat_pitch_augment">
             <option value="auto" selected>自动（推荐：按素材音域判断）</option>
@@ -166,10 +169,10 @@
       <div class="page" id="page-train">
     <section>
       <h2>第 2 步：训练模型（得到可翻唱的历史声线）</h2>
-      <div class="muted" id="train_rule_hint">从下面选一条待训练声线（素材 A 或 B 准备的都在这里），训练完成后自动绑定，即可翻唱。</div>
+      <div class="muted" id="train_rule_hint">从下面选一条待训练声线（素材 A、B、C 准备的都在这里），训练完成后自动绑定，即可翻唱。</div>
       <div id="voice_pick_group">
         <button class="secondary" onclick="loadVoices()">刷新历史声线</button>
-        <label>待训练声线（素材 A、B 准备好的都在这里）</label>
+        <label>待训练声线（素材 A、B、C 准备好的都在这里）</label>
         <select id="voice_select"></select>
         <div id="voice_hint" class="muted"></div>
       </div>
@@ -188,14 +191,14 @@
       </div>
       <details class="advanced">
         <summary>高级设置（质量优先，默认值已调好）</summary>
-        <div class="muted" style="margin:8px 0;">默认已调到质量最优：轮数按录音时长自动决定（数据越少轮数越少，避免过拟合），采样率 48k。想手动指定轮数就取消上面的勾选；显存/内存不足再调小批次。</div>
+        <div class="muted" style="margin:8px 0;">默认已调到质量最优：轮数按录音时长自动决定（数据越少轮数越少，避免过拟合），采样率自动选用本机支持的最高档。想手动指定轮数就把上面的下拉切到「手动指定轮数」；显存/内存不足再调小批次。</div>
         <div class="grid">
           <div>
             <label>采样率</label>
             <select id="train_sample_rate">
               <option value="40000" selected>40000（推荐）</option>
             </select>
-            <div class="muted">仅显示本机已具备底模的采样率；48k 音质更高但训练更慢。</div>
+            <div class="muted">仅显示本机已具备底模的采样率；采样率越高音质越好，但训练更慢。</div>
           </div>
           <div><label>批次大小 batch size</label><input id="train_batch_size" type="number" value="8"></div>
         </div>
@@ -230,6 +233,11 @@
       <label>分离模型</label>
       <select id="separation_model_select" onchange="renderSeparationModelInfo()"></select>
       <div id="separation_model_info" class="muted">加载模型列表中...</div>
+
+      <label style="display:block;margin-top:10px;">人声精修（可选）</label>
+      <div><label><input type="checkbox" id="sep_remove_harmony"> 去和声（只保留主唱，和声留在伴奏里）</label></div>
+      <div style="margin-top:6px;"><label><input type="checkbox" id="sep_denoise"> 降噪（去底噪/杂音）</label></div>
+      <div class="muted">这两项用 audio-separator 在分离后再精修人声轨：和声重的歌勾「去和声」可避免 RVC 把和声一起换糊；底噪明显的歌勾「降噪」。会增加处理时间，独唱/干净的歌不必开。</div>
 
       <label>音乐 / 视频文件路径</label>
       <div class="path-picker">
@@ -275,6 +283,14 @@
           <select id="cover_voice_select"></select>
         </div>
         <div id="cover_voice_hint" class="muted">做过「模型训练」会自动选中，也可以在这里手动切换。</div>
+      </div>
+      <div id="cover_lyrics_block">
+        <label style="margin-top:10px;">歌词（选填，用于逐字纠正发音）</label>
+        <textarea id="cover_lyrics" rows="6" style="width:100%;box-sizing:border-box;" placeholder="原唱吐词不清、有读错的字？把这首歌的歌词贴进来（想纠正读音的字直接写成读音正确的同音字也行）。留空就普通翻唱。"></textarea>
+        <div style="margin:6px 0;">
+          <button type="button" class="secondary" onclick="pickLyricsFile()">上传歌词文档（.txt/.lrc）</button>
+        </div>
+        <div class="muted" style="margin-top:4px;">填了歌词会自动改用「逐字纠正发音」方式：按歌词重唱原曲（保留原旋律与节奏）再换成你的声线，每个字唱什么音都按歌词来。会跑多个候选挑最清的一个，比普通翻唱慢几分钟。不填则照常普通翻唱。</div>
       </div>
       <div id="cover_reference_block" style="display:none;">
         <label>参考音频（目标声音，几秒到一小段即可）</label>
@@ -337,6 +353,36 @@
     </section>
       </div>
 
+      <div class="page" id="page-download">
+        <section>
+          <h2>从链接下载音频/视频</h2>
+          <div class="muted">粘贴抖音 / B站 / YouTube 等视频链接，自动下载并提取出音频（44.1k 立体声 WAV）。提取到的音频可直接当作翻唱原曲，或拿来做零样本翻唱的「参考音频」。</div>
+          <label style="margin-top:10px;">视频链接</label>
+          <div class="path-picker" style="margin:6px 0;">
+            <input id="download_url" placeholder="例如 https://www.douyin.com/video/...">
+            <button type="button" onclick="downloadMedia()" id="download_button">下载并提取</button>
+          </div>
+          <div style="margin:6px 0;">
+            <select id="download_keep_video">
+              <option value="both" selected>音频 + 视频都保留</option>
+              <option value="audio">只要音频（不保留视频文件）</option>
+            </select>
+          </div>
+          <div id="download_status" class="muted" style="margin-top:6px;">粘贴链接后点「下载并提取」。下载时长取决于视频大小，请稍候。</div>
+          <div id="download_result" class="result-audio" style="display:none;margin-top:12px;">
+            <b id="download_title"></b>
+            <audio id="download_audio_player" controls></audio>
+            <div class="path-picker" style="margin-top:8px;">
+              <input id="download_audio_path" readonly style="flex:1;min-width:0;">
+              <button type="button" class="secondary" onclick="copyDownloadPath()">复制音频路径</button>
+            </div>
+            <a id="download_audio_link" class="download-link" download>下载音频到本地</a>
+            <a id="download_video_link" class="download-link" download style="display:none;">下载视频到本地</a>
+            <div class="muted" style="margin-top:6px;">想用作翻唱原曲或参考音频时，到对应页面用「选择音频」浏览到 output/downloads 目录，或直接粘贴上面的路径。</div>
+          </div>
+        </section>
+      </div>
+
       <div class="page" id="page-history">
         <section>
           <h2>历史记录</h2>
@@ -362,10 +408,12 @@
     let separations = [];
     let progressTimer = null;
     let activeTask = "";
+    let sawJobRunning = false;
     let trainingVoiceId = "";
     let recTrainInfo = null;
     let prepStatusId = "recprep_status";
     let currentCoverAudioPath = "";
+    let coverReloadToken = 0;
     let separationJobPath = "";
     let separationReady = false;
     let songAudioBuffer = null;
@@ -400,6 +448,66 @@
       input.value = data.path;
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    async function pickLyricsFile() {
+      try {
+        const picked = await api("/api/pick-file?kind=lyrics&initial=");
+        if (!picked.path) return;
+        const data = await api(`/api/read-lyrics?path=${encodeURIComponent(picked.path)}`);
+        if (data.error) throw new Error(data.error);
+        $("cover_lyrics").value = data.text || "";
+      } catch (err) {
+        alert("读取歌词文件失败：" + err.message);
+      }
+    }
+
+    async function downloadMedia() {
+      const url = $("download_url").value.trim();
+      const note = $("download_status");
+      if (!url) { note.className = "bad"; note.textContent = "请先粘贴一个视频链接。"; return; }
+      const btn = $("download_button");
+      const idle = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="busy"><span class="spinner"></span>下载中…</span>';
+      note.className = "muted";
+      note.textContent = "正在下载并提取音频，请稍候…（时长取决于视频大小）";
+      $("download_result").style.display = "none";
+      try {
+        const data = await post("/api/download-media", { url, keep_video: $("download_keep_video").value === "both" });
+        const dur = data.duration ? `（约 ${Math.round(data.duration)} 秒）` : "";
+        $("download_title").textContent = (data.title || "已下载") + dur;
+        $("download_audio_player").src = data.audio_url;
+        $("download_audio_path").value = data.audio_path || "";
+        const aLink = $("download_audio_link");
+        aLink.href = data.audio_url + "&download=1";
+        const vLink = $("download_video_link");
+        if (data.video_url) { vLink.href = data.video_url + "&download=1"; vLink.style.display = ""; }
+        else { vLink.style.display = "none"; }
+        $("download_result").style.display = "block";
+        note.className = "muted";
+        note.textContent = "下载完成，已保存到 output/downloads。";
+      } catch (err) {
+        note.className = "bad";
+        note.textContent = `下载失败：${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = idle;
+      }
+    }
+
+    function copyDownloadPath() {
+      const inp = $("download_audio_path");
+      inp.select();
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(inp.value).then(() => {
+          const note = $("download_status");
+          note.className = "muted";
+          note.textContent = "音频路径已复制到剪贴板。";
+        }).catch(() => {});
+      } else {
+        document.execCommand("copy");
+      }
     }
 
     function status(text, bad = false) {
@@ -450,6 +558,7 @@
 
     function startProgressPolling(taskName) {
       activeTask = taskName;
+      sawJobRunning = false;
       if (progressTimer) clearInterval(progressTimer);
       progressTimer = setInterval(() => refreshStatus().catch(err => setProgress(err.message, false, true)), 1000);
     }
@@ -833,10 +942,10 @@
         ? d.available_sample_rates : [40000];
       const sel = $("train_sample_rate");
       if (sel) {
-        const labels = { 32000: "32000", 40000: "40000（推荐）", 48000: "48000（更高音质）" };
+        const labels = { 32000: "32000", 40000: "40000", 48000: "48000（音质更高）" };
         const best = Math.max(...rates);
         sel.innerHTML = rates.map(r =>
-          `<option value="${r}"${r === best ? " selected" : ""}>${labels[r] || r}</option>`
+          `<option value="${r}"${r === best ? " selected" : ""}>${labels[r] || r}${r === best ? "（推荐）" : ""}</option>`
         ).join("");
         sel.value = String(best);
       }
@@ -1041,6 +1150,12 @@
         historyLoaded = true;
         loadHistory();
       }
+      if (name === "cover") {
+        loadSeparations().catch(() => {});
+      }
+      if (name === "material" && materialMode === "c") {
+        loadRecSeparations().catch(() => {});
+      }
     }
 
     function escapeHtml(text) {
@@ -1154,6 +1269,12 @@
         html += `<div style="margin-top:10px;"><b>翻唱方式</b><div class="muted">零样本翻唱·免训练（Seed-VC）</div></div>`;
         html += audioBlock("参考片段（目标声音）", model.reference_audio, model.reference_ready);
       } else {
+        if (model.diffsinger) {
+          html += `<div style="margin-top:10px;"><b>翻唱方式</b><div class="muted">纠正发音翻唱·按歌词逐字重唱（DiffSinger → 声线）</div></div>`;
+          if (model.lyrics) {
+            html += `<div style="margin-top:8px;"><b>歌词</b><div class="muted" style="white-space:pre-wrap;">${escapeHtml(model.lyrics)}</div></div>`;
+          }
+        }
         html += `<div style="margin-top:10px;"><b>模型</b>`;
         if (model.name || model.model_name) {
           const ready = model.ready ? "已就绪" : "未绑定 .pth/.index";
@@ -1208,7 +1329,7 @@
       $("train_model_name").value = voice.training_model_name || `${voice.id}_voice_model`;
       $("train_status").textContent = voice.training_job_path
         ? `最近训练任务：${voice.training_job_path}`
-        : "训练很慢。素材 A 完成后会自动绑定到所选声线；素材 B 完成后会自动存为新的历史声线。";
+        : "训练很慢。完成后会自动把训练好的模型绑定到这条声线，即可用于翻唱。";
       $("checkpoint_list").textContent = "";
     }
 
@@ -1315,7 +1436,6 @@
       const data = await api("/api/separations");
       const list = data.separations || [];
       const select = $("sepmat_select");
-      const previous = new Set(Array.from(select.selectedOptions).map(o => o.value));
       select.innerHTML = "";
       if (!list.length) {
         const option = document.createElement("option");
@@ -1329,8 +1449,49 @@
         option.value = item.vocals_path || "";
         option.textContent = (item.ready ? "" : "（文件缺失）") + (item.label || item.id);
         option.disabled = !item.ready || !item.vocals_path;
-        if (previous.has(option.value)) option.selected = true;
         select.appendChild(option);
+      }
+    }
+
+    let sepmatChosen = [];
+
+    function addSepmatSelection() {
+      const opt = $("sepmat_select").selectedOptions[0];
+      if (!opt || opt.disabled || !opt.value) return;
+      if (sepmatChosen.some(c => c.path === opt.value)) return;
+      sepmatChosen.push({ path: opt.value, label: opt.textContent });
+      renderSepmatChosen();
+    }
+
+    function removeSepmatSelection(path) {
+      sepmatChosen = sepmatChosen.filter(c => c.path !== path);
+      renderSepmatChosen();
+    }
+
+    function renderSepmatChosen() {
+      const box = $("sepmat_chosen");
+      box.innerHTML = "";
+      if (!sepmatChosen.length) {
+        box.textContent = "尚未添加分离人声。";
+        return;
+      }
+      for (const c of sepmatChosen) {
+        const row = document.createElement("div");
+        row.style.display = "flex";
+        row.style.alignItems = "center";
+        row.style.gap = "8px";
+        row.style.marginTop = "4px";
+        const name = document.createElement("span");
+        name.textContent = "• " + c.label;
+        name.style.flex = "1";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "secondary";
+        btn.textContent = "✕";
+        btn.onclick = () => removeSepmatSelection(c.path);
+        row.appendChild(name);
+        row.appendChild(btn);
+        box.appendChild(row);
       }
     }
 
@@ -1392,10 +1553,9 @@
     async function prepareSeparatedVocals() {
       try {
         const characterName = $("sepmat_character_name").value.trim();
-        const recordings = Array.from($("sepmat_select").selectedOptions)
-          .map(o => o.value).filter(Boolean);
+        const recordings = sepmatChosen.map(c => c.path).filter(Boolean);
         if (!characterName) throw new Error("请先在「素材 C」里填写角色名。");
-        if (!recordings.length) throw new Error("请先选择至少一条分离人声。");
+        if (!recordings.length) throw new Error("请先添加至少一条分离人声。");
         setButtonBusy("sepmat_button", true, "正在准备...", "准备训练素材");
         setProgress("正在整理分离人声素材...", true);
         prepStatusId = "sepmat_status";
@@ -1540,6 +1700,8 @@
       $("cover_engine_hint").style.display = seedvc ? "" : "none";
       $("cover_voice_block").style.display = seedvc ? "none" : "";
       $("cover_reference_block").style.display = seedvc ? "" : "none";
+      // 歌词框只在「用声线（RVC）」流程出现，选填；填了就自动改走逐字纠正发音。
+      $("cover_lyrics_block").style.display = seedvc ? "none" : "";
     }
 
     function toggleCoverSmart() {
@@ -1584,9 +1746,12 @@
         const voice = voices.find(v => v.id === $("cover_voice_select").value);
         if (!voice) throw new Error("请先选择声线模型（到「模型训练」准备）。");
         if (!voice.ready) throw new Error("这个声线还没绑定模型，不能翻唱。请先到「模型训练」训练。");
+        // 自动选引擎：填了歌词就走「逐字纠正发音」(DiffSinger)，否则普通 RVC 翻唱。
+        const lyrics = $("cover_lyrics").value.trim();
+        const useDiffsinger = lyrics.length > 0;
         attachProgressTo("cover_button");
-        setProgress("正在创建翻唱任务...", true);
-        const result = await post("/api/create-audio-cover-job", {
+        setProgress(useDiffsinger ? "正在创建纠正发音翻唱任务（按歌词重唱，较慢）..." : "正在创建翻唱任务...", true);
+        const payload = {
           character_name: voice.name,
           voice_description: voice.description,
           voice_id: voice.id,
@@ -1605,7 +1770,12 @@
           formant_shifting: $("cover_formant_shifting").checked,
           formant_qfrency: $("cover_formant_qfrency").value,
           formant_timbre: $("cover_formant_timbre").value
-        });
+        };
+        if (useDiffsinger) payload.lyrics = lyrics;
+        const result = await post(
+          useDiffsinger ? "/api/create-diffsinger-cover-job" : "/api/create-audio-cover-job",
+          payload
+        );
         setJob(result.job_path);
         startProgressPolling("cover");
         await runJob(true);
@@ -1625,6 +1795,8 @@
         const result = await post("/api/create-separation-job", {
           song_path: $("song_path").value,
           separation_model: $("separation_model_select").value,
+          remove_harmony: $("sep_remove_harmony").checked,
+          denoise: $("sep_denoise").checked,
           start_seconds: $("start_seconds").value,
           duration_seconds: $("duration_seconds").value
         });
@@ -1714,6 +1886,7 @@
       renderResultAudio(data.artifacts);
       renderSavedPaths(data.artifacts);
       if (data.runner && data.runner.running) {
+        sawJobRunning = true;
         status("任务正在运行，请等待。");
         const label = activeTask ? activeTaskLabel(activeTask) : "任务";
         const p = data.progress;
@@ -1721,6 +1894,8 @@
           setProgress(`${label}：训练中 epoch ${p.epoch}/${p.total_epoch}（${p.percent}%）`, true, false, p.percent);
         } else if (p && p.phase === "separate") {
           setProgress(`${label}：人声分离中（${p.percent}%）`, true, false, p.percent);
+        } else if (p && p.phase === "diffsinger") {
+          setProgress(`${label}：${p.text}（${p.percent}%）`, true, false, p.percent);
         } else {
           setProgress(`${label}正在运行：${currentStepText(data.state)}`, true);
         }
@@ -1729,8 +1904,14 @@
       const lastMessage = messages.length ? messages[messages.length - 1] : "";
       if (data.runner && !data.runner.running && lastMessage) {
         status(lastMessage);
-        if (lastMessage === "Job finished.") {
-          setProgress(`${activeTask ? activeTaskLabel(activeTask) : "任务"}已完成。`, false);
+        // Only react to completion for a task we are actively tracking AND have
+        // seen running this session. Otherwise a stale "Job finished." from a
+        // previous job (still in the runner's message list, e.g. while the new
+        // job is being created and job_path briefly points at the old one) would
+        // flash "任务已完成" into the progress box before the new job even starts.
+        const tracked = activeTask && sawJobRunning;
+        if (tracked && lastMessage === "Job finished.") {
+          setProgress(`${activeTaskLabel(activeTask)}已完成。`, false);
           if (activeTask === "audition") {
             setButtonBusy("audition_button", false, "", "生成试听声线");
             auditionStatus("任务已完成，可以刷新试听列表并播放选择。");
@@ -1755,14 +1936,20 @@
             separationJobPath = $("job_path").value;
             separationStatus("人声分离已完成并保存到历史，可以进入第 4 步生成翻唱音频。");
             loadSeparations().catch(() => {});
+            loadRecSeparations().catch(() => {});
           }
           if (activeTask === "cover") {
+            // Force the result player to fetch the freshly written file: a
+            // regenerated cover may reuse the same path, so without a changing
+            // cache-buster the <audio> keeps the old cached bytes.
+            coverReloadToken = Date.now();
+            renderResultAudio(data.artifacts);
             if (historyLoaded) loadHistory().catch(() => {});
             setProgress("翻唱音频已完成并保存到历史，可以直接播放。", false);
           }
           stopProgressPolling();
         }
-        if (lastMessage.startsWith("Job failed:")) {
+        if (tracked && lastMessage.startsWith("Job failed:")) {
           setProgress(lastMessage, false, true);
           setButtonBusy("audition_button", false, "", "生成试听声线");
           setButtonBusy("recprep_button", false, "", "准备训练素材");
@@ -1866,7 +2053,7 @@
         return;
       }
       currentCoverAudioPath = audioPath;
-      const src = `/api/file?path=${encodeURIComponent(audioPath)}`;
+      const src = `/api/file?path=${encodeURIComponent(audioPath)}${coverReloadToken ? "&_v=" + coverReloadToken : ""}`;
       if (player.getAttribute("src") !== src) {
         player.src = src;
         player.load();

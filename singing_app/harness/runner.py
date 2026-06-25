@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import wave
@@ -10,8 +11,10 @@ from pathlib import Path
 from typing import Callable
 
 from singing_app.adapters.applio import ApplioInferAdapter, ApplioTrainAdapter
+from singing_app.adapters.audio_separator import AudioSeparatorAdapter
 from singing_app.adapters.cosyvoice import CosyVoiceAdapter
 from singing_app.adapters.demucs import DemucsAdapter
+from singing_app.adapters.diffsinger import DiffSingerAdapter
 from singing_app.adapters.edge_tts import EdgeTtsAdapter
 from singing_app.adapters.ffmpeg import FfmpegAdapter
 from singing_app.adapters.seedvc import SeedVcAdapter
@@ -32,11 +35,13 @@ class HarnessRunner:
         self.artifacts_path = self.workspace / "artifacts.json"
         self.ffmpeg = FfmpegAdapter()
         self.demucs = DemucsAdapter()
+        self.audio_separator = AudioSeparatorAdapter()
         self.applio_infer = ApplioInferAdapter()
         self.applio_train = ApplioTrainAdapter()
         self.edge_tts = EdgeTtsAdapter()
         self.cosyvoice = CosyVoiceAdapter()
         self.seedvc = SeedVcAdapter()
+        self.diffsinger = DiffSingerAdapter()
 
         self.handlers: dict[str, Callable[[StepContext], StepResult]] = {
             "check_runtime": self.check_runtime,
@@ -51,6 +56,7 @@ class HarnessRunner:
             "use_separated_audio": self.use_separated_audio,
             "convert_vocals": self.convert_vocals,
             "convert_vocals_zeroshot": self.convert_vocals_zeroshot,
+            "synthesize_diffsinger": self.synthesize_diffsinger,
             "mix_audio": self.mix_audio,
             "export_result": self.export_result,
         }
@@ -515,7 +521,8 @@ class HarnessRunner:
     def separate_vocals(self, context: StepContext) -> StepResult:
         input_path = context.artifact_path("song_clip")
         output_dir = context.workspace / "separated"
-        model = str(context.job.settings.get("separation", {}).get("model", "htdemucs_ft")).strip() or "htdemucs_ft"
+        sep_settings = context.job.settings.get("separation", {})
+        model = str(sep_settings.get("model", "htdemucs_ft")).strip() or "htdemucs_ft"
         spec = resolve_separation_model(model)
         engine = spec["engine"] if spec else "demucs"
         if engine != "demucs":
@@ -529,9 +536,55 @@ class HarnessRunner:
             model=model,
             dry_run=context.dry_run,
         )
+        # Optional audio-separator post-passes on the vocal stem. Demucs bundles
+        # lead+backing into one stem and leaves some bleed; these refine it.
+        remove_harmony = bool(sep_settings.get("remove_harmony", False))
+        denoise = bool(sep_settings.get("denoise", False))
+        notes: list[str] = []
+        if (remove_harmony or denoise) and not self.audio_separator.available():
+            raise RuntimeError(
+                "去和声 / 降噪需要 audio-separator，但当前环境未安装。请先安装后再开启，"
+                "或关闭这两个选项改用纯 Demucs 分离。"
+            )
+        post_log = context.logs_dir / "separate_postprocess.log"
+        if remove_harmony:
+            lead, backing = self.audio_separator.remove_harmony(
+                vocals_in=vocals,
+                output_dir=output_dir / "karaoke",
+                log_path=post_log,
+                dry_run=context.dry_run,
+            )
+            if not context.dry_run:
+                # Keep the original backing harmony in the accompaniment so the
+                # song stays full; only the lead goes on to RVC.
+                combined = output_dir / "instrumental_with_backing.wav"
+                self.ffmpeg.combine_stems(
+                    first_path=instrumental,
+                    second_path=backing,
+                    output_path=combined,
+                    log_path=post_log,
+                    dry_run=context.dry_run,
+                )
+                vocals, instrumental = lead, combined
+            notes.append("去和声")
+        if denoise:
+            clean = self.audio_separator.denoise(
+                vocals_in=vocals,
+                output_dir=output_dir / "denoise",
+                log_path=post_log,
+                dry_run=context.dry_run,
+            )
+            if not context.dry_run:
+                vocals = clean
+            notes.append("降噪")
+        message = (
+            f"Separated vocals ({model})"
+            + (f" + {'+'.join(notes)}" if notes else "")
+        )
         return StepResult(
             status="succeeded",
             artifacts={"vocals": str(vocals), "instrumental": str(instrumental)},
+            message=message,
         )
 
     def use_separated_audio(self, context: StepContext) -> StepResult:
@@ -601,8 +654,46 @@ class HarnessRunner:
         )
         return StepResult(status="succeeded", artifacts={"converted_vocals": str(output_path)})
 
+    def synthesize_diffsinger(self, context: StepContext) -> StepResult:
+        """Lyric-driven SVS: re-sing the song's vocals with the user's lyrics,
+        keeping the original melody (source f0) and rhythm (forced alignment), so
+        every character's pronunciation is exactly what the lyrics specify.
+
+        Produces a clean synthesized vocal and overwrites the ``vocals`` artifact
+        with it, so the downstream RVC ``convert_vocals`` step (which reads
+        ``vocals``) takes on the user's timbre with no change -- the hybrid route.
+        """
+        if not context.dry_run and not self.diffsinger.available():
+            raise RuntimeError(
+                "纠正发音翻唱引擎 DiffSinger/SOFA 尚未安装。请先安装 tools/DiffSinger 与 "
+                "tools/SOFA 及其 venv 和声库，或改用「用已训练的声线模型（RVC）」方式。"
+            )
+        lyrics = str(context.job.inputs.get("diffsinger", {}).get("lyrics", "")).strip()
+        if not context.dry_run and not lyrics:
+            raise ValueError("歌词为空，无法用纠正发音方式翻唱。请填写这首歌的歌词。")
+        settings = context.job.settings.get("diffsinger", {})
+        seeds = settings.get("seeds") or [7]
+        clean_path = context.workspace / "audio" / "vocals_diffsinger.wav"
+        self.diffsinger.synthesize_clean_vocals(
+            source_vocals=context.artifact_path("vocals"),
+            lyrics=lyrics,
+            output_path=clean_path,
+            log_path=context.logs_dir / "synthesize_diffsinger.log",
+            seeds=[int(s) for s in seeds],
+            depth=float(settings.get("depth", 0.3)),
+            steps=int(settings.get("steps", 100)),
+            velocity=float(settings.get("velocity", 0.85)),
+            dry_run=context.dry_run,
+        )
+        # Overwrite the vocals artifact so RVC convert_vocals reuses it unchanged.
+        return StepResult(
+            status="succeeded",
+            artifacts={"clean_vocals": str(clean_path), "vocals": str(clean_path)},
+            message="Synthesized clean vocals from lyrics (DiffSinger); handed to RVC.",
+        )
+
     def mix_audio(self, context: StepContext) -> StepResult:
-        output_path = context.workspace / "audio" / "final_mix.wav"
+        output_path = context.workspace / "audio" / f"{self._cover_basename(context)}.wav"
         settings = context.job.settings.get("mix", {})
         self.ffmpeg.mix_audio(
             instrumental_path=context.artifact_path("instrumental"),
@@ -615,6 +706,34 @@ class HarnessRunner:
             dry_run=context.dry_run,
         )
         return StepResult(status="succeeded", artifacts={"final_mix": str(output_path)})
+
+    @staticmethod
+    def _cover_basename(context: StepContext) -> str:
+        """Name the cover output ``<声线名>_<音乐名>_<日期时间>`` so files are
+        self-describing and regenerations don't overwrite each other.
+
+        Voice name comes from the RVC voice block or the zero-shot reference; song
+        name is the stem of the picked song; a ``YYYYMMDD_HHMMSS`` stamp keeps
+        every run as a distinct version. Illegal filename characters are stripped
+        while Unicode (Chinese) is kept. Falls back to ``cover`` for the name part
+        when neither voice nor song is available.
+        """
+        inputs = context.job.inputs
+        voice_name = str(
+            (inputs.get("voice") or {}).get("name")
+            or (inputs.get("reference") or {}).get("name")
+            or ""
+        ).strip()
+        song_path = str((inputs.get("song") or {}).get("path") or "").strip()
+        song_name = Path(song_path).stem if song_path else ""
+
+        def clean(text: str) -> str:
+            text = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "", text)
+            return re.sub(r"\s+", "_", text.strip())
+
+        parts = [clean(p) for p in (voice_name, song_name) if clean(p)]
+        name = ("_".join(parts) or "cover")[:120]
+        return f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     def export_result(self, context: StepContext) -> StepResult:
         return StepResult(

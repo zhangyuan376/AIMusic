@@ -11,7 +11,13 @@ voice_pipeline/input_song/
 voice_pipeline/separated/
 voice_pipeline/auditions*/
 output/
+checkpoints/
+downloads/
 singing_app/projects/
+singing_app/jobs/*.json
+!singing_app/jobs/demo_*.json
+!singing_app/jobs/new_character_voice_job.json
+!singing_app/jobs/pomao_demo_job.json
 singing_app/voice_library.json
 singing_app/separation_library.json
 singing_app/cover_library.json

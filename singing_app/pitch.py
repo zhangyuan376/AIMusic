@@ -9,35 +9,49 @@ from singing_app.config import RUNTIME
 
 # F0 estimation runs in the Applio venv (the one with librosa) via a subprocess,
 # mirroring separation_models._engine_available: the harness interpreter has no
-# librosa, but the tool interpreter does. The probe reads a time budget (seconds)
-# then audio paths from argv and prints the median *voiced* F0 (Hz) over all
-# collected frames as JSON, or "null" when no voiced audio is found. pyin gives
-# a voiced flag (unlike yin), so silent / breathy frames don't skew the median.
+# librosa, but the tool interpreter does. The probe reads a per-window budget
+# hint (argv[1], seconds) then audio paths from argv and prints a single median
+# *voiced* F0 (Hz) as JSON, or "null" when no voiced audio is found.
+#
+# It samples short windows spread across the WHOLE file (not just the head) and
+# returns the median of each window's median. Two reasons: (1) a single bad
+# stretch can't dominate -- pyin octave-doubles on breathy/falsetto intros (a
+# 5-min song's intro once measured 570 Hz median while its verses sat at ~270),
+# and reading only the first 25 s let that artifact flip the recommended cover
+# transpose by an octave; (2) median-of-window-medians is robust to a couple of
+# octave-erred windows in a way that pooling every frame is not.
 _F0_PROBE = r"""
 import sys, json
 import numpy as np
 import librosa
 
-budget = float(sys.argv[1])
-collected = []
+WIN = 5.0          # seconds per analysis window
+MAX_WINDOWS = 12   # spread this many windows across the file
+win_medians = []
 for path in sys.argv[2:]:
-    if budget <= 0:
-        break
     try:
-        y, sr = librosa.load(path, sr=16000, mono=True, duration=budget)
+        dur = librosa.get_duration(path=path)
     except Exception:
         continue
-    if y.size == 0:
-        continue
-    budget -= y.size / sr
-    f0, _voiced, _prob = librosa.pyin(y, sr=sr, fmin=65, fmax=1100, frame_length=2048)
-    f0 = f0[~np.isnan(f0)]
-    if f0.size:
-        collected.append(f0)
-if not collected:
+    if dur <= WIN * 1.5:
+        offsets = [0.0]
+    else:
+        offsets = list(np.linspace(0.0, max(0.0, dur - WIN), MAX_WINDOWS))
+    for off in offsets:
+        try:
+            y, sr = librosa.load(path, sr=16000, mono=True, offset=float(off), duration=WIN)
+        except Exception:
+            continue
+        if y.size < sr:  # < 1s of audio in the window
+            continue
+        f0, _voiced, _prob = librosa.pyin(y, sr=sr, fmin=65, fmax=1100, frame_length=2048)
+        f0 = f0[~np.isnan(f0)]
+        if f0.size:
+            win_medians.append(float(np.median(f0)))
+if not win_medians:
     print("null")
 else:
-    print(json.dumps(float(np.median(np.concatenate(collected)))))
+    print(json.dumps(float(np.median(win_medians))))
 """
 
 # Per-call analysis budget. pyin on ~25s of 16kHz audio runs in a few seconds;

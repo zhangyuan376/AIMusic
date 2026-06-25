@@ -54,6 +54,18 @@ class RuntimePaths:
         return self.output_root / "models"
 
     @property
+    def audio_separator_models(self) -> Path:
+        """Weight cache for the audio-separator engine (karaoke / denoise).
+
+        Lives under tools/ like the other runtime model caches (not committed);
+        audio-separator downloads checkpoints here on first use.
+        """
+        override = os.environ.get("AI_SINGING_AUDIO_SEPARATOR_MODELS")
+        if override:
+            return Path(override)
+        return self.app_root / "tools" / "audio_separator_models"
+
+    @property
     def applio_root(self) -> Path:
         override = os.environ.get("AI_SINGING_APPLIO_ROOT")
         if override:
@@ -123,6 +135,35 @@ class RuntimePaths:
         return self.applio_root / "core.py"
 
     @property
+    def downloads_root(self) -> Path:
+        """Where audio/video pulled from URLs (yt-dlp) is saved."""
+        return self.output_root / "downloads"
+
+    @property
+    def ytdlp(self) -> Path:
+        """yt-dlp CLI, used to fetch reference audio/video from a URL.
+
+        It is a self-contained script (shebang pins its own interpreter), so the
+        path can point into any venv regardless of which Python runs the web
+        server. Resolution order: env override, PATH, the project's own .venv,
+        then a bare name as a last resort.
+        """
+        override = os.environ.get("AI_SINGING_YTDLP")
+        if override:
+            return Path(override)
+        found = shutil.which("yt-dlp")
+        if found:
+            return Path(found)
+        exe = "yt-dlp.exe" if IS_WINDOWS else "yt-dlp"
+        # requirements.txt installs yt-dlp into whichever env runs the pip tools
+        # (usually the Applio venv); also check the project's own .venv.
+        for venv_bin in (self.tool_python.parent, _venv_python(self.app_root / ".venv").parent):
+            candidate = venv_bin / exe
+            if candidate.exists():
+                return candidate
+        return Path("yt-dlp")
+
+    @property
     def ffprobe(self) -> Path:
         override = os.environ.get("AI_SINGING_FFPROBE")
         if override:
@@ -171,6 +212,89 @@ class RuntimePaths:
         if override:
             return Path(override)
         return _venv_python(self.seedvc_root / ".venv")
+
+    @property
+    def diffsinger_python(self) -> Path:
+        """Python for the DiffSinger SVS engine (Qixuan ONNX synthesis).
+
+        Its own venv (onnxruntime + pypinyin + torch), isolated from Applio. Runs
+        the ``_diffsinger_synth.py`` bridge (g2p / synth / score modes).
+        """
+        override = os.environ.get("AI_SINGING_DIFFSINGER_PYTHON")
+        if override:
+            return Path(override)
+        return _venv_python(self.app_root / "tools" / "DiffSinger" / ".venv")
+
+    @property
+    def diffsinger_voicebank(self) -> Path:
+        """Qixuan v2.7.0 OpenUTAU DiffSinger voicebank dir (acoustic + variance
+        ONNX, phoneme/language maps). External runtime asset, not in git."""
+        override = os.environ.get("AI_SINGING_DIFFSINGER_VOICEBANK")
+        if override:
+            return Path(override)
+        return (
+            self.app_root
+            / "tools"
+            / "_dl"
+            / "qixuan"
+            / "Qixuan_v2.7.0_DiffSinger_OpenUtau"
+        )
+
+    @property
+    def diffsinger_vocoder(self) -> Path:
+        """NSF-HiFiGAN vocoder ONNX (mel_base=e, matches Qixuan), 44.1k/hop512/128bin."""
+        override = os.environ.get("AI_SINGING_DIFFSINGER_VOCODER")
+        if override:
+            return Path(override)
+        return (
+            self.app_root
+            / "tools"
+            / "_dl"
+            / "pc_nsf_2025"
+            / "pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx"
+        )
+
+    @property
+    def sofa_root(self) -> Path:
+        """SOFA forced-aligner repo root (produces ph_dur). External, not in git."""
+        override = os.environ.get("AI_SINGING_SOFA_ROOT")
+        if override:
+            return Path(override)
+        return self.app_root / "tools" / "SOFA"
+
+    @property
+    def sofa_python(self) -> Path:
+        """Python for SOFA (its own venv, torch 2.2 + lightning)."""
+        override = os.environ.get("AI_SINGING_SOFA_PYTHON")
+        if override:
+            return Path(override)
+        return _venv_python(self.sofa_root / ".venv")
+
+    @property
+    def sofa_ckpt(self) -> Path:
+        """SOFA pretrained Mandarin-singing acoustic alignment checkpoint."""
+        override = os.environ.get("AI_SINGING_SOFA_CKPT")
+        if override:
+            return Path(override)
+        return (
+            self.sofa_root
+            / "ckpt"
+            / "pretrained_mandarin_singing"
+            / "v1.0.0_mandarin_singing.ckpt"
+        )
+
+    @property
+    def sofa_dictionary(self) -> Path:
+        """opencpop-extension pinyin->phoneme dictionary for SOFA."""
+        override = os.environ.get("AI_SINGING_SOFA_DICT")
+        if override:
+            return Path(override)
+        return self.sofa_root / "dictionary" / "opencpop-extension.txt"
+
+    @property
+    def whisper_cache(self) -> Path:
+        """HF cache holding the offline Whisper model used for best-of-N scoring."""
+        return self.app_root / "checkpoints" / "hf_cache"
 
     @property
     def applio_rmvpe(self) -> Path:
