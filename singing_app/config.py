@@ -164,6 +164,30 @@ class RuntimePaths:
         return Path("yt-dlp")
 
     @property
+    def ytdlp_cookies_file(self) -> Path | None:
+        """Optional Netscape cookies.txt to pass yt-dlp via --cookies.
+
+        Sites like Douyin gate the web detail endpoint behind fresh session
+        cookies. Exporting cookies.txt from a logged-in / actively-browsed
+        session sidesteps the auto-extraction path and works even when the
+        browser profile is unreadable (snap sandboxing, root-owned dirs).
+        """
+        override = os.environ.get("AI_SINGING_YTDLP_COOKIES")
+        if override:
+            return Path(override)
+        return None
+
+    @property
+    def ytdlp_browser(self) -> str | None:
+        """Browser name for ``yt-dlp --cookies-from-browser`` (firefox, chrome, ...).
+
+        Used as a fallback when no cookies.txt is supplied. Empty/None disables
+        the flag entirely so yt-dlp runs without cookies.
+        """
+        value = (os.environ.get("AI_SINGING_YTDLP_BROWSER") or "").strip()
+        return value or None
+
+    @property
     def ffprobe(self) -> Path:
         override = os.environ.get("AI_SINGING_FFPROBE")
         if override:

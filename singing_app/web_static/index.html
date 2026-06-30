@@ -368,7 +368,32 @@
               <option value="audio">只要音频（不保留视频文件）</option>
             </select>
           </div>
-          <div id="download_status" class="muted" style="margin-top:6px;">粘贴链接后点「下载并提取」。下载时长取决于视频大小，请稍候。</div>
+          <details style="margin:6px 0;">
+            <summary class="muted">高级：cookies（抖音 / YouTube 经常需要）</summary>
+            <div style="margin-top:8px;">
+              <label class="muted">浏览器（自动从本机已登录/浏览过的浏览器读 cookies）</label>
+              <select id="download_cookies_browser" style="margin-top:4px;">
+                <option value="" selected>不使用</option>
+                <option value="firefox">Firefox</option>
+                <option value="chrome">Chrome</option>
+                <option value="chromium">Chromium</option>
+                <option value="edge">Edge</option>
+                <option value="brave">Brave</option>
+                <option value="safari">Safari</option>
+              </select>
+            </div>
+            <div style="margin-top:8px;">
+              <label class="muted">或指定 cookies.txt 文件路径（优先于浏览器，推荐）</label>
+              <div class="path-picker" style="margin-top:4px;">
+                <input id="download_cookies_file" placeholder="例如 /home/you/douyin_cookies.txt">
+                <button type="button" class="secondary" onclick="pickFile('download_cookies_file', 'file')">选择文件</button>
+              </div>
+              <div class="muted" style="margin-top:4px;font-size:12px;">
+                用浏览器扩展 <b>Get cookies.txt LOCALLY</b> 在登录/浏览过抖音的标签页里导出 cookies.txt，再选择此文件。
+              </div>
+            </div>
+          </details>
+          <div id="download_status" class="muted" style="margin-top:6px;white-space:pre-wrap;">粘贴链接后点「下载并提取」。下载时长取决于视频大小，请稍候。</div>
           <div id="download_result" class="result-audio" style="display:none;margin-top:12px;">
             <b id="download_title"></b>
             <audio id="download_audio_player" controls></audio>
@@ -474,7 +499,12 @@
       note.textContent = "正在下载并提取音频，请稍候…（时长取决于视频大小）";
       $("download_result").style.display = "none";
       try {
-        const data = await post("/api/download-media", { url, keep_video: $("download_keep_video").value === "both" });
+        const data = await post("/api/download-media", {
+          url,
+          keep_video: $("download_keep_video").value === "both",
+          cookies_browser: $("download_cookies_browser").value.trim(),
+          cookies_file: $("download_cookies_file").value.trim(),
+        });
         const dur = data.duration ? `（约 ${Math.round(data.duration)} 秒）` : "";
         $("download_title").textContent = (data.title || "已下载") + dur;
         $("download_audio_player").src = data.audio_url;
@@ -486,7 +516,10 @@
         else { vLink.style.display = "none"; }
         $("download_result").style.display = "block";
         note.className = "muted";
-        note.textContent = "下载完成，已保存到 output/downloads。";
+        const fname = (data.audio_path || "").split("/").pop() || "";
+        note.textContent = fname
+          ? `下载完成，已保存为 output/downloads/${fname}（同名 .info.json 记录了原 id 与链接）。`
+          : "下载完成，已保存到 output/downloads。";
       } catch (err) {
         note.className = "bad";
         note.textContent = `下载失败：${err.message}`;

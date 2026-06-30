@@ -8,7 +8,18 @@ from typing import Sequence
 
 
 class CommandError(RuntimeError):
-    pass
+    def __init__(self, message: str, log_tail: str = "") -> None:
+        super().__init__(message)
+        self.log_tail = log_tail
+
+
+def _read_log_tail(log_path: Path, max_lines: int = 15) -> str:
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("$ ")]
+    return "\n".join(lines[-max_lines:])
 
 
 def run_command(
@@ -61,7 +72,9 @@ def run_command(
             log.write(tail)
             log.flush()
         if returncode != 0:
+            tail = _read_log_tail(log_path)
             raise CommandError(
-                f"Command failed with exit code {returncode}: {command_text}"
+                f"Command failed with exit code {returncode}: {command_text}",
+                log_tail=tail,
             )
 

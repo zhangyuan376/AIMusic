@@ -1014,6 +1014,22 @@ def download_media(payload: dict[str, Any]) -> dict[str, Any]:
     url = _normalize_media_url(url)
     keep_video = bool(payload.get("keep_video", True))
 
+    # Cookies wiring (抖音/YouTube 经常要 fresh cookies). 用户传的 cookies_file
+    # 优先;其次 cookies_browser;否则回退到 RUNTIME 的环境变量默认值。
+    cookies_file: Path | None = None
+    raw_file = str(payload.get("cookies_file") or "").strip()
+    if raw_file:
+        cf = Path(raw_file)
+        if not cf.is_file():
+            raise ValueError(f"cookies 文件不存在：{raw_file}")
+        cookies_file = cf
+    elif RUNTIME.ytdlp_cookies_file is not None and RUNTIME.ytdlp_cookies_file.is_file():
+        cookies_file = RUNTIME.ytdlp_cookies_file
+
+    cookies_browser = str(payload.get("cookies_browser") or "").strip() or None
+    if cookies_file is None and cookies_browser is None:
+        cookies_browser = RUNTIME.ytdlp_browser
+
     downloader = MediaDownloader()
     if not downloader.available():
         raise RuntimeError(
@@ -1028,6 +1044,8 @@ def download_media(payload: dict[str, Any]) -> dict[str, Any]:
         out_dir=RUNTIME.downloads_root,
         log_path=log_path,
         keep_video=keep_video,
+        cookies_file=cookies_file,
+        cookies_from_browser=cookies_browser,
     )
 
     audio_path = str(result.get("audio_path") or "")
