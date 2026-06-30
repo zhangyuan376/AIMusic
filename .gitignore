@@ -10,7 +10,8 @@ voice_pipeline/output/
 voice_pipeline/input_song/
 voice_pipeline/separated/
 voice_pipeline/auditions*/
-output/
+output/*
+!output/AV/
 checkpoints/
 downloads/
 singing_app/projects/
@@ -47,3 +48,8 @@ env/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# AV deliverables (final cover + matched video) are tracked despite the
+# broad output/ and *.wav rules above so they ship with the repo.
+!output/AV/
+!output/AV/**
